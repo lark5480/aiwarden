@@ -1,0 +1,31 @@
+# ---- Build artifacts ----
+target/
+dist/
+node_modules/
+.pnpm-store/
+*.class
+
+# ---- Local environment (never commit real secrets) ----
+.env
+.env.local
+docker-compose.override.yml
+**/application-local.yml
+
+# ---- Runtime data ----
+logs/
+*.log
+data/
+pgdata/
+
+# ---- IDE / editor ----
+.vscode/
+.idea/
+*.iml
+
+# ---- OS ----
+.DS_Store
+Thumbs.db
+
+# ---- Temp ----
+*.tmp
+*.bak

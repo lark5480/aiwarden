@@ -3,7 +3,7 @@
 | 项 | 内容 |
 |---|---|
 | **文档版本** | v2.0（立项版 v1.0 + 2026-10-06 回写 13 条裁决，依据 [06-PRD修订裁决清单](research/06-PRD修订裁决清单.md)） |
-| **文档状态** | **开工前需求规划**——代码尚未开始编写，实现过程中如与本文件冲突，以 `AGENTS.md` + 代码为准，并回写本文档 |
+| **文档状态** | **需求规划已定稿**——M0 已开工（多模块骨架已落地），业务代码尚未开始编写；实现过程中如与本文件冲突，以 `AGENTS.md` + 代码为准，并回写本文档 |
 | **上游文档** | 调研序列 01–02（**内部材料，未随仓库公开**，见根 README「公开范围」） · [03-竞品调研与饱和度分析](research/03-竞品调研与饱和度分析.md) · [04-选题论证与差异化声明](research/04-选题论证与差异化声明.md) · [05-独立验证与交叉质询报告](research/05-独立验证与交叉质询报告.md) · [06-PRD修订裁决清单](research/06-PRD修订裁决清单.md)（本版回写的唯一依据） |
 | **定位纪律** | 本项目自称「**治理层 / 组件**」，形态为**数据面治理组件**（在 ModelClient / VectorStore / ToolExecutor 三条 SPI 边界上做治理），**不自称「平台 / 中台 / 网关」**。理由见 [04 §4.4 风险 3](research/04-选题论证与差异化声明.md) 与 [06 号清单裁决 1](research/06-PRD修订裁决清单.md) |
 
@@ -331,7 +331,7 @@ flowchart LR
 - ❌ 不得说 **SB 3.5**——OSS 支持已于 2026-06-30 EOL（末版 3.5.16；断供线后 158 条 advisory 中 96 条 / 61% 无 OSS 修复版），「明知 EOL 仍选 3.5」的叙事难以自圆其说；不得说 **SB 4.0**——OSS 支持将于 2026-12-31 EOL，升级目标必须锁 4.1（OSS 至 2027-07-31）。
 - ❌ 不得使用 **LangChain4j 1.19.1**——官方标记 "published in error, do not use"。
 - ✅ **starter 线的版本号形态（2026-10 实测）**：核心件 `dev.langchain4j:langchain4j` 为 **`1.21.0`**（无后缀），而 starter 模块 `dev.langchain4j:langchain4j-spring-boot4-starter` 为 **`1.21.0-beta31`**——**两处版本号必须分别书写**，照抄核心件版本号会直接依赖解析失败。被问「为什么你的 starter 是 beta 版」时的答法：这是 LangChain4j 对 **starter / 集成模块**的发布惯例（SB3 线 `langchain4j-spring-boot-starter` 同样跑在 `-betaNN` 序列上，两者最新版号一致），**不代表 API 不稳定**；本项目在 `pom.xml` 锁精确版本，并已用 `mvn dependency:get` 实测可解析下载。
-- ✅ Jackson 2/3 共存策略：默认 Jackson 2；引入 `langchain4j-jackson3` opt-in 模块即全库切 Jackson 3，删依赖即回退；应用层以 `spring.jackson.use-jackson-2-defaults=true` 兜底存量序列化行为。
+- ✅ **Jackson 2/3 共存策略（2026-10 实测修正）**：**应用层默认已是 Jackson 3**——SB 4.1.1 经 `spring-boot-starter-jackson` 引入 `tools.jackson.core:jackson-databind:3.1.5`（注意 groupId 是 `tools.jackson`，不是 `com.fasterxml.jackson`）；**LangChain4j 侧默认 Jackson 2**（`com.fasterxml.jackson.core:jackson-databind:2.21.5`）。两套 groupId 不同，**共存不冲突**（`mvn dependency:tree` 实测）。① 要把**应用层**回退到 Jackson 2 默认行为，设 **`spring.jackson.use-jackson2-defaults=true`**——⚠️ 属性名是 `jackson2`，**中间没有连字符**，写成 `use-jackson-2-defaults` 会**静默无效**（依据：`spring-boot-jackson-4.1.1.jar` 的 `spring-configuration-metadata.json`）；② 要让 **LangChain4j 侧**也切到 Jackson 3，再引入 `langchain4j-jackson3` opt-in 模块（该 artifact 同样以 `-betaNN` 形态发布，坐标为 `dev.langchain4j:langchain4j-jackson3:1.21.0-beta31`）。
 - ✅ 所有版本号必须能在 `pom.xml` 中找到；README 里的技术事实一律来自官方文档与一手 Release Notes，不采信第三方索引站的 AI 摘要；引用漏洞 / issue 必须带编号与日期（GO-2026-6242/6243、issue #5290/#5441）。
 
 ### 7.3 模块结构（契约分离 + 五层思路）
@@ -362,7 +362,7 @@ aiwarden/
 **ADR-001 · 选 Spring Boot 4.1 + LangChain4j 1.20+（spring-boot4-starter 线）**
 - **结论**：底座 **SB 4.1.1**（OSS 支持至 2027-07-31；勿选 4.0——其 OSS 支持也将于 2026-12-31 EOL）；AI 层核心件 `dev.langchain4j:langchain4j:1.21.0` + starter `dev.langchain4j:langchain4j-spring-boot4-starter:1.21.0-beta31`（避开官方标记 do not use 的 1.19.1）。**两处版本号形态不同，必须分别书写。**
 - **三条依据**：① LangChain4j 自 1.13.0（2026-04）官方适配 SB4 并设独立 spring-boot4-starter 线，1.20.0（2026-09-04）提供 Jackson 3 opt-in 模块 `langchain4j-jackson3`——「迁移断裂」反方前提失效；② SB 3.5 OSS 已于 2026-06-30 EOL，断供线后 158 条 advisory 中 96 条（61%）无 OSS 修复版，选 EOL 底座本身成为红线；③ SB 4.0 OSS 支持将于 2026-12-31 到线，升级目标必须锁 4.1。
-- **Jackson 2/3 共存策略**：默认 Jackson 2；引入 `langchain4j-jackson3` opt-in 模块即全库切 Jackson 3，删依赖即回退；应用层以 `spring.jackson.use-jackson-2-defaults=true` 兜底存量序列化行为。
+- **Jackson 2/3 共存策略（2026-10 实测修正）**：应用层默认 **Jackson 3**（`tools.jackson.core:jackson-databind:3.1.5`），LangChain4j 侧默认 **Jackson 2**（`com.fasterxml.jackson.core:jackson-databind:2.21.5`），两套 groupId 共存不冲突；回退应用层到 Jackson 2 默认行为用 **`spring.jackson.use-jackson2-defaults=true`**（⚠️ 属性名**无连字符**）；LangChain4j 侧切 Jackson 3 再引 `langchain4j-jackson3` opt-in 模块。详见 [`DECISIONS.md` ADR-001 修订段](DECISIONS.md)。
 - **验证步骤（已于 2026-10-06 执行）**：`mvn dependency:get -Dartifact=dev.langchain4j:langchain4j-spring-boot4-starter:1.21.0-beta31` → **解析并下载成功**（闭环 05 §六遗留项 1）。⚠️ 本条原先漏写 `-beta31`，而 `...spring-boot4-starter:1.21.0` 这个坐标**并不存在**；starter 与核心件的版本号形态不同，详见 [DECISIONS.md ADR-001](DECISIONS.md)。
 
 **ADR-002 · 虚拟线程 WebMVC（非 WebFlux）**

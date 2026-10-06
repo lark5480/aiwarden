@@ -59,6 +59,13 @@ PRD v1.0 把「LangChain4j 1.x + Spring Boot 3.x」写进了版本红线，理�
 
 > **本条闭合了** [05 §六](research/05-独立验证与交叉质询报告.md) 遗留项 1（原验证命令写作 `...spring-boot4-starter:1.21.0`，该坐标不存在，已按实测修正为 `1.21.0-beta31`）。
 
+## 修订（2026-10）
+
+M0 骨架落地后（`pom.xml` 已建立；Maven 3.9.9 / JDK 21.0.8 / SB 4.1.1 实测）追加两条实测结论，正文不改写：
+
+- **双坐标共存已在真实构建中验证**：`aiwarden-start` 的 `mvn dependency:tree` 显示 `dev.langchain4j:langchain4j:1.21.0` 与 `dev.langchain4j:langchain4j-spring-boot4-starter:1.21.0-beta31` 同树解析、无版本仲裁冲突；`@SpringBootTest` 上下文冒烟测试在 SB 4.1.1 下通过。
+- **Jackson 共存实测**：SB 4.1.1 应用层默认 JSON 栈已是 **Jackson 3**（`tools.jackson.core:jackson-databind:3.1.5`，经 `spring-boot-starter-jackson`）；LangChain4j 1.21.0 默认 Jackson 2（`com.fasterxml.jackson.core:jackson-databind:2.21.5`）。两方 groupId 不同、共存不冲突——上文「默认 Jackson 2」指 **LangChain4j 侧默认**；应用层写序列化相关代码时按 Jackson 3 校验，如需 LangChain4j 侧也切 Jackson 3 再引入 `langchain4j-jackson3` opt-in 模块。
+
 ---
 
 ## ADR-002 · Web 层虚拟线程 WebMVC（非 WebFlux）

@@ -62,16 +62,21 @@
 
 ## 4. 已知的坑与约定（随代码生长）
 
-**本节目前只有一条——它已被实测验证，且不翻代码发现不了：**
+**本节现有两条，都是实测得来、且不翻代码发现不了的：**
 
 - **LangChain4j 的两处坐标版本号形态不同**：核心件是 `dev.langchain4j:langchain4j:1.21.0`，而 starter 模块是
   `dev.langchain4j:langchain4j-spring-boot4-starter:1.21.0-beta31`。
   **照抄核心件的版本号去写 starter 会直接依赖解析失败。** `-betaNN` 是 LangChain4j 对 starter / 集成模块
   的发布惯例，不是「API 不稳定」的标记。依据与实测命令见 [`docs/DECISIONS.md`](docs/DECISIONS.md) ADR-001。
+- **Jackson 在两条依赖线上各有一套，且配置属性名有陷阱**：SB 4.1.1 的**应用层默认是 Jackson 3**
+  （`tools.jackson.core`，注意 groupId **不是** `com.fasterxml.jackson`），而 **LangChain4j 侧默认 Jackson 2**
+  （`com.fasterxml.jackson.core`）——两套 groupId 不同，同一 classpath 上共存不冲突。
+  回退应用层到 Jackson 2 默认行为的属性是 **`spring.jackson.use-jackson2-defaults`**（**`jackson2` 中间没有连字符**）；
+  写成 `use-jackson-2-defaults` **不报错，只静默失效**。依据见 [`docs/DECISIONS.md`](docs/DECISIONS.md) ADR-001 修订段。
 
 ---
 
 ## 5. 当前状态与公开范围
 
-- **阶段**：立项期——需求与调研已完成，**尚无业务代码**；实现从 M0 起步（里程碑定义见 [`docs/PRD.md`](docs/PRD.md) §8）。
+- **阶段**：**M0 地基阶段**——需求与调研已完成，**多模块骨架已落地**（Spring Boot 4.1.1 + LangChain4j 双坐标共存、ArchUnit 首条架构规则、CI workflow），**业务代码尚未开始编写**；里程碑定义见 [`docs/PRD.md`](docs/PRD.md) §8。
 - **公开范围**：本仓库为公开版。编号 01、02 的调研文档、`docs/research/inbox/` 原始报告，以及个人规划类文档属**内部材料，存放于仓库外**——**不要把它们加回本仓库**。

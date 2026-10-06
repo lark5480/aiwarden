@@ -3,12 +3,11 @@
 > **多租户 AI 数据与用量治理层**（形态：**数据面治理组件**）
 > 把大模型的**不确定性**（删不干净、越权、重复副作用、用量失控、长任务中断）关进 Java 的**确定性**里。
 
-[![Status](https://img.shields.io/badge/status-立项阶段%20·%20代码待实现-orange)]()
+[![Status](https://img.shields.io/badge/status-M0%20地基进行中-orange)]()
 [![License](https://img.shields.io/badge/License-MIT-lightgrey)]()
 
-> ⚠️ **当前仓库状态：立项阶段（2026-10）。**
-> 本仓库目前只有 `docs/`（调研 + PRD + 决策记录），**尚无业务代码**。实现进度以 [`docs/PRD.md`](docs/PRD.md) §8 里程碑为准。
-> 立项阶段的调研与需求是**已完成**的交付物；代码从 M0 开始。
+> ⚠️ **当前仓库状态：M0 地基阶段（2026-10）。**
+> `docs/`（调研 + PRD + 决策记录）为已完成交付物；**Java 多模块骨架已起步**——Spring Boot 4.1.1 + LangChain4j 双坐标（核心件 `1.21.0` / SB4 starter `1.21.0-beta31`）共存、ArchUnit 架构守护、CI workflow 均已就位（本地 `mvn -B -ntp verify` 通过）。**业务代码尚未开始编写**，实现进度以 [`docs/PRD.md`](docs/PRD.md) §8 里程碑为准。
 
 ---
 

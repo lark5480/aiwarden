@@ -15,14 +15,32 @@ import static org.assertj.core.api.Assertions.assertThat;
 /**
  * 架构守护测试（CI 红线，PRD §7.3）。
  *
- * <p>M0 起点只启用第一条规则：<b>业务模块不得直接 import {@code dev.langchain4j.*}</b>——
- * LangChain4j 是底座实现细节，必须经 aiwarden-core 的 SPI 屏蔽；
- * {@code aiwarden-start} 作为装配根（负责把 SPI 实现接进容器）暂不在此规则范围内。
+ * <p>已启用三条规则：
+ * <ol>
+ *   <li><b>core 领域纯净</b>：不得依赖 governance / knowledge / agent；</li>
+ *   <li><b>业务模块不得直接 import {@code dev.langchain4j.*}</b>——LangChain4j 是底座实现细节，
+ *       必须经 aiwarden-core 的 SPI 屏蔽；{@code aiwarden-start} 作为装配根暂不在此规则范围内；</li>
+ *   <li><b>契约单向</b>：contract 不得依赖任何业务模块。</li>
+ * </ol>
  *
- * <p>其余三条（core 依赖方向 / contract 单向 / 禁止先查全量再在应用层过滤）随对应代码落地再启用。
+ * <p>第四条（禁止「先查全量再在应用层过滤权限」）随对应业务代码落地再启用。
  */
 @AnalyzeClasses(packages = "com.aiwarden", importOptions = ImportOption.DoNotIncludeTests.class)
 class ArchitectureTest {
+
+    @ArchTest
+    static final ArchRule coreMustNotDependOnBusinessModules =
+            noClasses().that().resideInAPackage("com.aiwarden.core..")
+                    .should().dependOnClassesThat()
+                    .resideInAnyPackage("com.aiwarden.governance..", "com.aiwarden.knowledge..", "com.aiwarden.agent..")
+                    .because("aiwarden-core 是 SPI 与领域模型的基础层，业务模块只能依赖它、不能反向（PRD §7.3 规则 1）");
+
+    @ArchTest
+    static final ArchRule contractMustNotDependOnBusinessModules =
+            noClasses().that().resideInAPackage("com.aiwarden.contract..")
+                    .should().dependOnClassesThat()
+                    .resideInAnyPackage("com.aiwarden.governance..", "com.aiwarden.knowledge..", "com.aiwarden.agent..")
+                    .because("对外契约必须单向独立，业务模块不得反向渗入契约层（PRD §7.3 规则 3）");
 
     @ArchTest
     static final ArchRule businessModulesMustNotDependOnLangChain4j =

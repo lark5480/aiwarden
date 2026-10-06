@@ -13,4 +13,12 @@
     <artifactId>aiwarden-common</artifactId>
     <name>aiwarden-common</name>
     <description>通用层：统一 Result / 错误码 / 公共工具（PRD §7.3）</description>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
 </project>

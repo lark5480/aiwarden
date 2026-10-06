@@ -1,0 +1,101 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <!-- 底座：Spring Boot 4.1.1（ADR-001；版本红线见 README 与 PRD §7.2） -->
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>4.1.1</version>
+        <relativePath/>
+    </parent>
+
+    <groupId>com.aiwarden</groupId>
+    <artifactId>aiwarden</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+    <packaging>pom</packaging>
+
+    <name>aiwarden</name>
+    <description>多租户 AI 数据与用量治理层（数据面治理组件）— 聚合父 POM</description>
+
+    <modules>
+        <module>aiwarden-common</module>
+        <module>aiwarden-contract</module>
+        <module>aiwarden-core</module>
+        <module>aiwarden-governance</module>
+        <module>aiwarden-knowledge</module>
+        <module>aiwarden-agent</module>
+        <module>aiwarden-eval</module>
+        <module>aiwarden-start</module>
+    </modules>
+
+    <properties>
+        <java.version>21</java.version>
+        <!-- LangChain4j：核心件与 starter 的版本号形态不同，必须分别书写（ADR-001；照抄核心件版本号会依赖解析失败） -->
+        <langchain4j.version>1.21.0</langchain4j.version>
+        <langchain4j-starter.version>1.21.0-beta31</langchain4j-starter.version>
+        <archunit.version>1.5.1</archunit.version>
+    </properties>
+
+    <dependencyManagement>
+        <dependencies>
+            <!-- 本项目模块：统一版本源 -->
+            <dependency>
+                <groupId>com.aiwarden</groupId>
+                <artifactId>aiwarden-common</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.aiwarden</groupId>
+                <artifactId>aiwarden-contract</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.aiwarden</groupId>
+                <artifactId>aiwarden-core</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.aiwarden</groupId>
+                <artifactId>aiwarden-governance</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.aiwarden</groupId>
+                <artifactId>aiwarden-knowledge</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.aiwarden</groupId>
+                <artifactId>aiwarden-agent</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.aiwarden</groupId>
+                <artifactId>aiwarden-eval</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+
+            <!-- AI 层：核心件 + SB4 starter，两条坐标版本形态不同（ADR-001） -->
+            <dependency>
+                <groupId>dev.langchain4j</groupId>
+                <artifactId>langchain4j</artifactId>
+                <version>${langchain4j.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>dev.langchain4j</groupId>
+                <artifactId>langchain4j-spring-boot4-starter</artifactId>
+                <version>${langchain4j-starter.version}</version>
+            </dependency>
+
+            <!-- 架构守护（CI 红线，PRD §7.3） -->
+            <dependency>
+                <groupId>com.tngtech.archunit</groupId>
+                <artifactId>archunit-junit5</artifactId>
+                <version>${archunit.version}</version>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+</project>

@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.aiwarden</groupId>
+        <artifactId>aiwarden</artifactId>
+        <version>0.1.0-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>aiwarden-start</artifactId>
+    <name>aiwarden-start</name>
+    <description>Spring Boot 启动模块：装配根 + Flyway + Dockerfile（PRD §7.3）</description>
+
+    <dependencies>
+        <!-- 全模块装配面：start 是装配根，同时是架构守护测试（ArchUnit）的扫描入口，需要全模块在类路径上 -->
+        <dependency>
+            <groupId>com.aiwarden</groupId>
+            <artifactId>aiwarden-common</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.aiwarden</groupId>
+            <artifactId>aiwarden-contract</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.aiwarden</groupId>
+            <artifactId>aiwarden-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.aiwarden</groupId>
+            <artifactId>aiwarden-governance</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.aiwarden</groupId>
+            <artifactId>aiwarden-knowledge</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.aiwarden</groupId>
+            <artifactId>aiwarden-agent</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.aiwarden</groupId>
+            <artifactId>aiwarden-eval</artifactId>
+        </dependency>
+
+        <!-- Web 层：WebMVC + 虚拟线程（ADR-002；SB4 中该 starter 名为 spring-boot-starter-webmvc） -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-webmvc</artifactId>
+        </dependency>
+
+        <!-- AI 层：核心件与 SB4 starter 两个坐标共存，显式声明以锁精确版本（版本形态不同，见根 pom / ADR-001） -->
+        <dependency>
+            <groupId>dev.langchain4j</groupId>
+            <artifactId>langchain4j</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>dev.langchain4j</groupId>
+            <artifactId>langchain4j-spring-boot4-starter</artifactId>
+        </dependency>
+
+        <!-- 测试：JUnit 5 + AssertJ + Mockito（SB 管理版本）与 ArchUnit 架构守护 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.tngtech.archunit</groupId>
+            <artifactId>archunit-junit5</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </build>
+</project>

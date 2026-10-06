@@ -1,0 +1,7 @@
+spring:
+  application:
+    name: aiwarden
+  # 虚拟线程 WebMVC（ADR-002）：LLM 长阻塞 IO 的标准承载方式
+  threads:
+    virtual:
+      enabled: true

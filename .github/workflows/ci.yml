@@ -1,0 +1,28 @@
+name: CI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+
+# 最小权限：CI 只读仓库内容
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: 编译 + 单测 + 架构守护（mvn verify）
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v7
+
+      - name: 安装 JDK 21（Temurin）
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: mvn verify
+        run: mvn -B -ntp verify

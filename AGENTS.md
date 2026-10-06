@@ -62,21 +62,35 @@
 
 ## 4. 已知的坑与约定（随代码生长）
 
-**本节现有两条，都是实测得来、且不翻代码发现不了的：**
+**本节现有五条，都是实测得来、且不翻代码发现不了的。**
+
+> **先记一条可迁移的判断规则**：下面五条里有**三条是同一类坑**——`-betaNN` 版本后缀、Jackson 属性名少一个
+> 连字符、`flyway-core` 与 `spring-boot-starter-flyway` 的区别——**全都是「名字写错 → 不报错、只是静默不生效」**。
+> 在新一代框架（SB 4 / 模块化拆包）里，「配置不报错但不生效」比「配置报错」更常见。
+> **因此：引入任何技术栈后，必须验证它真的生效（有日志 / 有表 / 有行为），不能只看构建通过。**
 
 - **LangChain4j 的两处坐标版本号形态不同**：核心件是 `dev.langchain4j:langchain4j:1.21.0`，而 starter 模块是
   `dev.langchain4j:langchain4j-spring-boot4-starter:1.21.0-beta31`。
   **照抄核心件的版本号去写 starter 会直接依赖解析失败。** `-betaNN` 是 LangChain4j 对 starter / 集成模块
   的发布惯例，不是「API 不稳定」的标记。依据与实测命令见 [`docs/DECISIONS.md`](docs/DECISIONS.md) ADR-001。
+- **租户上下文不引入 TransmittableThreadLocal / InheritableThreadLocal**：虚拟线程是不可复用的一次性线程、
+  池化线程（`@Scheduled`）会被复用——两类边界统一走 `TenantContext` 的显式 capture（`snapshot()`）→ apply，
+  缺失时 `requireTenantId()` 拒绝（**不回落默认租户**）。写异步 / 消费 / 定时任务代码时不要为了「自动透传」
+  引入 TTL 依赖；依据与单测证据见 [`docs/DECISIONS.md`](docs/DECISIONS.md) ADR-003。
 - **Jackson 在两条依赖线上各有一套，且配置属性名有陷阱**：SB 4.1.1 的**应用层默认是 Jackson 3**
   （`tools.jackson.core`，注意 groupId **不是** `com.fasterxml.jackson`），而 **LangChain4j 侧默认 Jackson 2**
   （`com.fasterxml.jackson.core`）——两套 groupId 不同，同一 classpath 上共存不冲突。
   回退应用层到 Jackson 2 默认行为的属性是 **`spring.jackson.use-jackson2-defaults`**（**`jackson2` 中间没有连字符**）；
   写成 `use-jackson-2-defaults` **不报错，只静默失效**。依据见 [`docs/DECISIONS.md`](docs/DECISIONS.md) ADR-001 修订段。
+- **Spring Boot 4 把自动配置拆进了独立模块：集成某技术时优先找对应 `spring-boot-starter-*`，只加底层库可能「完全不装配且不报错」**——实测踩坑：只加 `org.flywaydb:flyway-core` 时应用照常启动、**Flyway 静默不执行任何迁移**（无日志、无表）；换用 `org.springframework.boot:spring-boot-starter-flyway` 才恢复「启动即迁移」。引入任何原本应存在自动配置的技术栈时，先核对 Starter 坐标。
+- **Testcontainers 在 SB 4 下有两个与 Boot 3.x 时代不同的硬约束**：① SB 4 **不再代管其版本**，
+  必须在根 pom 显式导入 `org.testcontainers:testcontainers-bom`（照 Boot 3.x 写法直接引用会构建失败）；
+  ② 2.x 起所有模块改名为 `testcontainers-*` 前缀（如 `testcontainers-junit-jupiter`、`testcontainers-postgresql`），
+  照 1.x 旧名会解析失败。另外**测试分层是硬约定**：普通 `@SpringBootTest` 不依赖外部服务（根 pom 里 surefire 全局 `spring.flyway.enabled=false`、DataSource 仅装配不连接）；真实 PostgreSQL（pgvector）验证收敛在 `*ContainersTest` 类，类内显式 `properties = "spring.flyway.enabled=true"` + `@ServiceConnection` 指向容器。
 
 ---
 
 ## 5. 当前状态与公开范围
 
-- **阶段**：**M0 地基阶段**——需求与调研已完成，**多模块骨架已落地**（Spring Boot 4.1.1 + LangChain4j 双坐标共存、ArchUnit 首条架构规则、CI workflow），**业务代码尚未开始编写**；里程碑定义见 [`docs/PRD.md`](docs/PRD.md) §8。
+- **阶段**：**M0 地基阶段**——需求与调研已完成，**多模块骨架已落地**（Spring Boot 4.1.1 + LangChain4j 双坐标共存、ArchUnit 3 条架构规则、CI workflow、租户上下文四类边界透传、Flyway 迁移（V1 租户表）+ Docker Compose（PostgreSQL/pgvector、Redis、Kafka、MinIO）），**业务代码尚未开始编写**；里程碑定义见 [`docs/PRD.md`](docs/PRD.md) §8。
 - **公开范围**：本仓库为公开版。编号 01、02 的调研文档、`docs/research/inbox/` 原始报告，以及个人规划类文档属**内部材料，存放于仓库外**——**不要把它们加回本仓库**。

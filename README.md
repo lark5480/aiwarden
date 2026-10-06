@@ -7,7 +7,7 @@
 [![License](https://img.shields.io/badge/License-MIT-lightgrey)]()
 
 > ⚠️ **当前仓库状态：M0 地基阶段（2026-10）。**
-> `docs/`（调研 + PRD + 决策记录）为已完成交付物；**Java 多模块骨架已起步**——Spring Boot 4.1.1 + LangChain4j 双坐标（核心件 `1.21.0` / SB4 starter `1.21.0-beta31`）共存、ArchUnit 架构守护、CI workflow 均已就位（本地 `mvn -B -ntp verify` 通过）。**业务代码尚未开始编写**，实现进度以 [`docs/PRD.md`](docs/PRD.md) §8 里程碑为准。
+> `docs/`（调研 + PRD + 决策记录）为已完成交付物；**Java 多模块骨架已起步**——Spring Boot 4.1.1 + LangChain4j 双坐标（核心件 `1.21.0` / SB4 starter `1.21.0-beta31`）共存、ArchUnit 架构守护（3 条规则）、CI workflow、租户上下文四类边界透传（HTTP / 虚拟线程 / Kafka 消费 / 定时任务）、**Flyway 迁移（V1 租户表，Testcontainers 实测）与 Docker Compose 一键起（PostgreSQL+pgvector / Redis / Kafka / MinIO，四容器实测 healthy）**均已就位（本地 `mvn -B -ntp verify` 通过）。**业务代码尚未开始编写**，实现进度以 [`docs/PRD.md`](docs/PRD.md) §8 里程碑为准。
 
 ---
 
@@ -105,7 +105,7 @@ AIWarden 是一个**面向 Java 技术栈的 AI 应用数据面治理组件**。
 |---|---|
 | 知道**要做什么、验收标准是什么** | [`docs/PRD.md`](docs/PRD.md)（v2.0：立项版 + 13 条裁决回写） |
 | 改代码前，知道**要守哪些铁律与坑** | [`AGENTS.md`](AGENTS.md)（编码代理协作约定；立项期只含地图与纪律，随代码生长） |
-| 知道**某个技术决策为什么这么选** | [`docs/DECISIONS.md`](docs/DECISIONS.md)（ADR-001 底座版本 · ADR-002 虚拟线程 WebMVC，含开工前实测证据） |
+| 知道**某个技术决策为什么这么选** | [`docs/DECISIONS.md`](docs/DECISIONS.md)（ADR-001 底座版本 · ADR-002 虚拟线程 WebMVC · ADR-003 租户上下文传播，含开工前与落地实测证据） |
 | 知道**为什么选这个题、凭什么和竞品共存** | [`docs/research/04-选题论证与差异化声明.md`](docs/research/04-选题论证与差异化声明.md) |
 | 知道**有哪些竞品、哪些方向已经饱和** | [`docs/research/03-竞品调研与饱和度分析.md`](docs/research/03-竞品调研与饱和度分析.md) |
 | 知道**结论经不经得起质疑** | [`docs/research/05-独立验证与交叉质询报告.md`](docs/research/05-独立验证与交叉质询报告.md) |

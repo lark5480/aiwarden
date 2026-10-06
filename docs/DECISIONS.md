@@ -11,6 +11,7 @@
 |---|---|---|
 | ADR-001 | 底座选 Spring Boot 4.1 + LangChain4j 1.21 | 已采纳（2026-10-06） |
 | ADR-002 | Web 层虚拟线程 WebMVC（非 WebFlux） | 已采纳（2026-10-06） |
+| ADR-003 | 租户上下文显式 capture/apply（不引入 TTL） | 已采纳（2026-10-06） |
 
 ---
 
@@ -64,7 +65,7 @@ PRD v1.0 把「LangChain4j 1.x + Spring Boot 3.x」写进了版本红线，理�
 M0 骨架落地后（`pom.xml` 已建立；Maven 3.9.9 / JDK 21.0.8 / SB 4.1.1 实测）追加两条实测结论，正文不改写：
 
 - **双坐标共存已在真实构建中验证**：`aiwarden-start` 的 `mvn dependency:tree` 显示 `dev.langchain4j:langchain4j:1.21.0` 与 `dev.langchain4j:langchain4j-spring-boot4-starter:1.21.0-beta31` 同树解析、无版本仲裁冲突；`@SpringBootTest` 上下文冒烟测试在 SB 4.1.1 下通过。
-- **Jackson 共存实测**：SB 4.1.1 应用层默认 JSON 栈已是 **Jackson 3**（`tools.jackson.core:jackson-databind:3.1.5`，经 `spring-boot-starter-jackson`）；LangChain4j 1.21.0 默认 Jackson 2（`com.fasterxml.jackson.core:jackson-databind:2.21.5`）。两方 groupId 不同、共存不冲突——上文「默认 Jackson 2」指 **LangChain4j 侧默认**；应用层写序列化相关代码时按 Jackson 3 校验，如需 LangChain4j 侧也切 Jackson 3 再引入 `langchain4j-jackson3` opt-in 模块。
+- **Jackson 共存实测**：SB 4.1.1 应用层默认 JSON 栈已是 **Jackson 3**（`tools.jackson.core:jackson-databind:3.1.5`，经 `spring-boot-starter-jackson`；注意 groupId 是 `tools.jackson`，不是 `com.fasterxml.jackson`）；LangChain4j 1.21.0 默认 Jackson 2（`com.fasterxml.jackson.core:jackson-databind:2.21.5`）。两方 groupId 不同、共存不冲突——上文「默认 Jackson 2」指 **LangChain4j 侧默认**。① 要把**应用层**回退到 Jackson 2 默认行为，设 **`spring.jackson.use-jackson2-defaults=true`**——⚠️ 属性名是 `jackson2`，**中间没有连字符**，写成 `use-jackson-2-defaults` 会**静默无效**（依据：`spring-boot-jackson-4.1.1.jar` 的 `spring-configuration-metadata.json`）；② 要让 **LangChain4j 侧**也切到 Jackson 3，再引入 `dev.langchain4j:langchain4j-jackson3:1.21.0-beta31`（同样以 `-betaNN` 形态发布）。
 
 ---
 
@@ -91,3 +92,35 @@ Web 层采用 **Spring WebMVC + `spring.threads.virtual.enabled=true`**（Java 2
 
 - **放弃 WebFlux**：响应式模型与虚拟线程在本场景**收益重叠**，却额外引入 Reactor 的学习与调试成本（栈轨迹难读、阻塞调用易踩坑）。评估后放弃。
 - **需要处理的坑**：JDK 21 下 `synchronized` 包住长 IO 会 **pinning**（虚拟线程被钉在载体线程上）。约定：**长 IO 段一律改用 `ReentrantLock`**；该问题在 JDK 24 由 JEP 491 彻底解决，代码注释需写明这一时间线。
+
+---
+
+## ADR-003 · 租户上下文用显式 capture/apply（不引入 TransmittableThreadLocal）
+
+**状态**：已采纳（2026-10-06）
+
+### 背景
+
+FR-TEN-02 要求租户上下文贯穿 **HTTP → 虚拟线程 → Kafka 消费 → 定时任务** 四类边界；FR-OBS-03 要求明确虚拟线程与 `TransmittableThreadLocal`（TTL）的语义差异并写明结论。
+
+### 决策
+
+以 `aiwarden-common` 的 `TenantContext`（`ThreadLocal` + 快照 capture/apply + 缺失即抛 `MissingTenantContextException`）为**唯一**租户上下文载体：
+
+- **不引入 TTL**：TTL 解决的是「池化线程复用导致装饰丢失」；虚拟线程是**不可复用的一次性线程**，TTL 的 decorate 语义不适用——两类线程形态统一走显式 capture/apply，一条规则覆盖。
+- **不依赖 `InheritableThreadLocal`**：只在线程**创建**时刻继承，且执行器创建的线程继承的是「创建者线程」而非「提交任务者」的上下文，语义不可靠。
+- **缺失即拒绝**：不回落默认租户（FR-TEN-02）；HTTP 侧由 `MissingTenantContextExceptionHandler` 统一转 400。
+
+### 验证（单测证据，均随 `mvn verify` 执行）
+
+| 边界 | 测试 | 断言要点 |
+|---|---|---|
+| 核心语义 | `TenantContextTest` | 作用域退出还原（含嵌套）/ 缺失拒绝 / 空值参数错误 |
+| 虚拟线程 | `TenantContextVirtualThreadPropagationTest` | 显式快照在新虚拟线程内可见；未 apply 的虚拟线程 `require` 即拒绝 |
+| Kafka 消费 | `TenantContextKafkaBoundaryTest` | 生产端盖戳 / 消费端恢复 / 缺头即拒绝（内存载体先冻结机制，真实 Kafka 适配在 M1） |
+| 定时任务 | `TenantContextScheduledTaskBoundaryTest` | 池化线程作用域内可见、退出不残留（下一任务不串租户） |
+| HTTP | `TenantContextHttpBoundaryTest`（start 模块） | 真实 Tomcat + 虚拟线程：请求头 → 控制器可见；缺头 → 400 |
+
+### 代价与放弃
+
+放弃 TTL 的「自动装饰」便利：调用方多写一行显式 capture/apply——换来一套规则同时覆盖虚拟线程与池化线程，语义可测。HTTP 过滤器与异常处理在 `aiwarden-start`（装配根）；M2 接入 API Key 后把租户来源从请求头切换为密钥解析即可，传播机制不变。

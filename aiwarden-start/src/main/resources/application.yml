@@ -5,3 +5,12 @@ spring:
   threads:
     virtual:
       enabled: true
+  # 数据层：默认指向 docker compose 起的 PostgreSQL（pgvector），可用环境变量覆盖
+  datasource:
+    url: ${AIWARDEN_DB_URL:jdbc:postgresql://localhost:5432/aiwarden}
+    username: ${AIWARDEN_DB_USER:aiwarden}
+    password: ${AIWARDEN_DB_PASSWORD:aiwarden}
+  # 迁移：启动时自动执行 src/main/resources/db/migration（PRD §7.1 迁移=Flyway）
+  flyway:
+    enabled: true
+    locations: classpath:db/migration

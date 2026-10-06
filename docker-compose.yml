@@ -1,0 +1,82 @@
+# AIWarden 本地基础设施 — Docker Compose 一键起（PRD §6 主形态）
+#
+# 用法：docker compose up -d
+# 说明：
+# - 镜像 tag 均为 2026-10 本机实际拉取验证过的锁定版本；
+# - 可观测性栈（OTel Collector / Tempo / Loki / Grafana / Prometheus）随其功能里程碑
+#   （M2 指标 / M4 Trace）合入本文件，避免现在起「起了不用的容器」；
+# - 应用侧连接配置见 aiwarden-start/src/main/resources/application.yml（默认指向本文件的服务）。
+name: aiwarden
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: aiwarden-postgres
+    environment:
+      POSTGRES_DB: aiwarden
+      POSTGRES_USER: aiwarden
+      POSTGRES_PASSWORD: aiwarden
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U aiwarden -d aiwarden" ]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7.4-alpine
+    container_name: aiwarden-redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  kafka:
+    image: apache/kafka:4.0.0
+    container_name: aiwarden-kafka
+    environment:
+      # 单节点 KRaft（controller + broker 同进程）；数据不挂卷——演示环境重启即清，更干净
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@localhost:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    ports:
+      - "9092:9092"
+    healthcheck:
+      test: [ "CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 >/dev/null 2>&1" ]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+      start_period: 30s
+
+  minio:
+    image: minio/minio:RELEASE.2025-09-07T16-13-09Z
+    container_name: aiwarden-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: aiwarden
+      MINIO_ROOT_PASSWORD: aiwarden-minio
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - miniodata:/data
+    # 不配 healthcheck：minio 官方镜像内不保证有 curl/mc，避免用不存在的工具导致假 unhealthy
+
+volumes:
+  pgdata:
+  miniodata:

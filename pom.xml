@@ -37,10 +37,21 @@
         <langchain4j.version>1.21.0</langchain4j.version>
         <langchain4j-starter.version>1.21.0-beta31</langchain4j-starter.version>
         <archunit.version>1.5.1</archunit.version>
+        <!-- Testcontainers：SB 4.x 不再代为管理其版本（与 Boot 3.x 不同，须显式锁版） -->
+        <testcontainers.version>2.0.5</testcontainers.version>
     </properties>
 
     <dependencyManagement>
         <dependencies>
+            <!-- Testcontainers（集成测试容器；版本必须显式锁——SB 4.x 已不再管理） -->
+            <dependency>
+                <groupId>org.testcontainers</groupId>
+                <artifactId>testcontainers-bom</artifactId>
+                <version>${testcontainers.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+
             <!-- 本项目模块：统一版本源 -->
             <dependency>
                 <groupId>com.aiwarden</groupId>
@@ -98,4 +109,21 @@
             </dependency>
         </dependencies>
     </dependencyManagement>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <!-- 测试分层默认值（见 AGENTS.md §4）：单测不依赖外部服务——Flyway 全局关闭、
+                         DataSource 仅装配不连接；需要真实 PostgreSQL（pgvector）的验证收敛在
+                         Testcontainers 测试类（类内用 properties = "spring.flyway.enabled=true" 显式开启）。 -->
+                    <systemPropertyVariables>
+                        <spring.flyway.enabled>false</spring.flyway.enabled>
+                    </systemPropertyVariables>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
 </project>

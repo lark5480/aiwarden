@@ -62,12 +62,15 @@
 
 ## 4. 已知的坑与约定（随代码生长）
 
-**本节现有五条，都是实测得来、且不翻代码发现不了的。**
+**本节现有八条，都是实测得来、且不翻代码发现不了的。**
 
-> **先记一条可迁移的判断规则**：下面五条里有**三条是同一类坑**——`-betaNN` 版本后缀、Jackson 属性名少一个
-> 连字符、`flyway-core` 与 `spring-boot-starter-flyway` 的区别——**全都是「名字写错 → 不报错、只是静默不生效」**。
-> 在新一代框架（SB 4 / 模块化拆包）里，「配置不报错但不生效」比「配置报错」更常见。
-> **因此：引入任何技术栈后，必须验证它真的生效（有日志 / 有表 / 有行为），不能只看构建通过。**
+> **先记一条可迁移的判断规则**：下面八条里有**五条**共享同一个失效形态——**不报错、只是静默不生效**：
+> - **名字写错**：`-betaNN` 版本后缀、Jackson 属性名少一个连字符、`flyway-core` 与 `spring-boot-starter-flyway` 的区别；
+> - **装配歧义**：`CommonErrorHandler` 候选不唯一（工厂干脆谁都不用，自定义重试与 DLT 一起失效）；
+> - **语义设计**：幂等仲裁键混用「重复投递」与「合法状态流转」。
+>
+> 在新一代框架（SB 4 / 模块化拆包）与异步管道里，「不报错但不生效」比「报错」更常见。
+> **因此：引入任何技术栈或机制后，必须验证它真的生效（有日志 / 有表 / 有行为 / 有指标），不能只看构建通过。**
 
 - **LangChain4j 的两处坐标版本号形态不同**：核心件是 `dev.langchain4j:langchain4j:1.21.0`，而 starter 模块是
   `dev.langchain4j:langchain4j-spring-boot4-starter:1.21.0-beta31`。
@@ -86,11 +89,19 @@
 - **Testcontainers 在 SB 4 下有两个与 Boot 3.x 时代不同的硬约束**：① SB 4 **不再代管其版本**，
   必须在根 pom 显式导入 `org.testcontainers:testcontainers-bom`（照 Boot 3.x 写法直接引用会构建失败）；
   ② 2.x 起所有模块改名为 `testcontainers-*` 前缀（如 `testcontainers-junit-jupiter`、`testcontainers-postgresql`），
-  照 1.x 旧名会解析失败。另外**测试分层是硬约定**：普通 `@SpringBootTest` 不依赖外部服务（根 pom 里 surefire 全局 `spring.flyway.enabled=false`、DataSource 仅装配不连接）；真实 PostgreSQL（pgvector）验证收敛在 `*ContainersTest` 类，类内显式 `properties = "spring.flyway.enabled=true"` + `@ServiceConnection` 指向容器。
+  照 1.x 旧名会解析失败。另外**测试分层是硬约定**：普通 `@SpringBootTest` 不依赖外部服务（根 pom 里 surefire 全局：`spring.flyway.enabled=false`、`spring.kafka.listener.auto-startup=false`、`aiwarden.outbox.relay.enabled=false`，DataSource 仅装配不连接）；真实 PostgreSQL / Kafka（pgvector）验证收敛在 `*ContainersTest` 类，类内显式 `properties` 开启 + `@ServiceConnection` 指向容器。
+- **本机 Testcontainers 偶发「Could not find a valid Docker environment」**：报错常见 `MalformedChunkCodingException (Bad chunk header)`，根因是 `~/.testcontainers.properties` 把客户端策略**锁死为 NpipeSocket 单策略**——npipe 抖动时没有回退链，直接判无 Docker。**重试通常即恢复**；CI（Linux）不受此影响；彻底修复 = 删掉该文件里的 `docker.client.strategy` 行让其自动探测。偶发失败时不要先去怀疑测试代码。
+- **@SpringBootTest 全上下文里多个 `CommonErrorHandler` 候选会让 Kafka 错误处理「静默回退默认」**：产品代码（knowledge 的 `DocumentIngestMessagingConfig`）与测试配置各注册一个 `CommonErrorHandler` 时，候选不唯一 → 工厂不采用任何一个 → 自定义重试次数与 DLT 全部失效（实测现象：决策测试的 DLT 断言 60s 超时、无报错提示原因）。**需要哪个生效就给它 `@Primary`**。同类风险适用于一切「按类型唯一装配」的扩展点（TaskDecorator、HandlerInterceptor、TaskScheduler 等），多 bean 共存时都要显式表态。
+- **幂等仲裁的键必须区分「重复投递」与「合法状态流转」**：M1 初版用同一行 `(doc_id, version)` 账本同时服务
+  索引与删除事件，`tryClaim` 只允许 FAILED 重抢——于是**「索引完成（INDEXED）后的删除事件」被当成重复而静默跳过**，
+  向量清理不执行；HTTP 全链路测试以 `1/DELETED/INDEXED` **状态超时**暴露，**全程无报错、无指向性日志**。
+  修正：拆开 `tryClaimForIndex`（FAILED 可重抢）与 `tryClaimForDelete`（**INDEXED / FAILED 可重抢**）。
+  **写幂等仲裁前先问一句：这个键上会不会出现合法的多次流转？** P3 工具幂等会复用同一套方法论，尤其注意。
+  依据见 [`docs/DECISIONS.md`](docs/DECISIONS.md) ADR-005 修订段。
 
 ---
 
 ## 5. 当前状态与公开范围
 
-- **阶段**：**M0 地基阶段**——需求与调研已完成，**多模块骨架已落地**（Spring Boot 4.1.1 + LangChain4j 双坐标共存、ArchUnit 3 条架构规则、CI workflow、租户上下文四类边界透传、Flyway 迁移（V1 租户表）+ Docker Compose（PostgreSQL/pgvector、Redis、Kafka、MinIO）），**业务代码尚未开始编写**；里程碑定义见 [`docs/PRD.md`](docs/PRD.md) §8。
+- **阶段**：**M1 完成**（2026-10）——M0 地基 + M1（P1 删除即失效 / P4a 计量）已落地：Outbox → Kafka → 幂等消费 → 对账全链路带容器测试（检索 0 命中 5 轮样本 / 16 线程并发只产生一份向量 / 对账报告+指标+显式修复 / 计量落库）；本地 `mvn -B -ntp verify` 50 测试全绿，**GitHub CI 待首次推送验证**。下一步 M2（P2 检索层隔离 + P3 副作用幂等 + P4a 配额）。里程碑定义见 [`docs/PRD.md`](docs/PRD.md) §8。
 - **公开范围**：本仓库为公开版。编号 01、02 的调研文档、`docs/research/inbox/` 原始报告，以及个人规划类文档属**内部材料，存放于仓库外**——**不要把它们加回本仓库**。

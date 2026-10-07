@@ -12,6 +12,9 @@
 | ADR-001 | 底座选 Spring Boot 4.1 + LangChain4j 1.21 | 已采纳（2026-10-06） |
 | ADR-002 | Web 层虚拟线程 WebMVC（非 WebFlux） | 已采纳（2026-10-06） |
 | ADR-003 | 租户上下文显式 capture/apply（不引入 TTL） | 已采纳（2026-10-06） |
+| ADR-004 | 消息中间件保留 Kafka（决策点提前实测） | 已采纳（2026-10-07） |
+| ADR-005 | Outbox 发布与幂等消费时序（轮询 Relay + 至少一次 + 唯一键仲裁） | 已采纳（2026-10-07） |
+| ADR-006 | 对账只读发现、修复显式触发（不自动改数据） | 已采纳（2026-10-07） |
 
 ---
 
@@ -124,3 +127,115 @@ FR-TEN-02 要求租户上下文贯穿 **HTTP → 虚拟线程 → Kafka 消费 �
 ### 代价与放弃
 
 放弃 TTL 的「自动装饰」便利：调用方多写一行显式 capture/apply——换来一套规则同时覆盖虚拟线程与池化线程，语义可测。HTTP 过滤器与异常处理在 `aiwarden-start`（装配根）；M2 接入 API Key 后把租户来源从请求头切换为密钥解析即可，传播机制不变。
+
+---
+
+## ADR-004 · 消息中间件保留 Kafka（第 4 周末决策点提前执行的实测裁决）
+
+**状态**：已采纳（2026-10-07）｜兑现 PRD §11 风险 7「Kafka → Redis Streams 决策点」——**提前至 M1 首日执行**（原文「第 4 周末」是 deadline 不是下界，提前执行不违背承诺）
+
+### 背景
+
+PRD §11 风险 7 给 Kafka 记了两笔账：运维负担与 **Testcontainers 反馈循环长**；并约定若收益不足退化为 Redis Streams。为避免「做完摄入管道再回头换实现」，M1 首日先做证伪实验：**判定标准实验前写死**（防确认偏误），再用同一组消费语义断言跑 Kafka 与 Redis Streams 两侧对照。
+
+### 判定标准（实验前写死，2026-10-07）
+
+- **退化条件（任一命中）**：a) Kafka Testcontainers 单类反馈循环 > 90s 且复用/预热后无法压入；b) 语义清单存在 Kafka 无法以合理复杂度覆盖的项；c) 消费语义上手成本无一项优于 Redis Streams（纯摩擦、零语义收益）。
+- **保留条件**：语义全绿 + 反馈循环 ≤ 90s。
+- 90s 依据：日常「改完就知道结果」的忍耐上限；超过它 TDD 会绕开测试跑。
+
+### 实测数据（2026-10-07，Windows/JDK 21/Maven 3.9.9；镜像均已本地缓存）
+
+| 维度 | Kafka `apache/kafka:4.0.0` | Redis Streams `redis:7.4-alpine` |
+|---|---|---|
+| ① 至少一次投递 | ✓ | ✓ |
+| ② 手动 ack | ✓（`ack-mode=manual`） | ✓（PEL + XACK，未 ack 可查询） |
+| ③ 失败重试 | ✓（FixedBackOff 重试 1 次，断言尝试数==2） | ✓（XCLAIM 重投） |
+| ④ 死信 | ✓（DLT topic，断言原消息内容+尝试次数） | ✓（DLT stream，应用层流转） |
+| ⑤ 幂等仲裁（DB 唯一键）可行 | ✓（以 ①② 为前提） | ✓（同） |
+| 容器启动 | 5.19s | 1.39s |
+| 单类测试耗时（surefire） | 18.07s（含 Spring 上下文） | 6.59s |
+| 单类总墙上时间 | 27.5s | 13.3s |
+| 实现形态 | 声明式（配置 + listener，~150 行） | 手写 PEL 轮询 / XCLAIM 调度 / DLT 流转（~100 行，语义全在应用层） |
+| 镜像大小（CI 首拉成本） | 660MB | 57MB |
+
+测试代码即证据：`KafkaRoundTripContainersTest` / `RedisStreamsRoundTripContainersTest`（`aiwarden-start` 的 `com.aiwarden.start.decision` 包，随 `mvn verify` 执行；全量含三容器 48.1s）。
+
+### 决策
+
+**保留 Kafka**——三条退化条件均未命中（27.5s ≪ 90s；语义 5/5；消费组 / 位移 / 重试 / DLT 均为框架级能力，Redis Streams 侧需全部手写）。技能叙事收益（补 MQ 事实标准缺口，PRD §7.1）成立。
+
+### 代价与放弃
+
+- **CI 首次拉取 660MB 镜像**（一次性 1–3 分钟）；全量 `mvn verify` 由 M0 无 Kafka 时的约 23s 增至 **48.1s**——为 Kafka 付的实测代价，可接受。
+- **放弃 Redis Streams 作为主选**：它保留为**已验证的逃生梯**——对照测试留在仓库中，若未来摩擦超出预期，退化路径的可行性有代码级证据（本实验的第二个产出）。
+- 本地开发不新增摩擦：compose 的 Kafka 是常驻容器（启动约 8s）。
+
+### 观察点（不设新决策日，随 M1 事实校准）
+
+M1 实现幂等摄入链路时记录真实摩擦（如消费测试 flaky 率）；若显著高于本实验数据，按 PRD §11.1 止损纪律处理（缩小承诺 + 如实披露），逃生梯已就绪。
+
+---
+
+## ADR-005 · Outbox 发布与幂等消费时序（轮询 Relay + 至少一次 + 唯一键仲裁）
+
+**状态**：已采纳（2026-10-07）｜M1 切片②落地
+
+### 背景
+
+P1（删除即失效）主链路是「业务表 + outbox 同事务 → Kafka → 幂等消费 → 终态可查」。发布机制与消费仲裁有多个可选做法（CDC 抽 binlog vs 应用内轮询 relay；消费端恰好一次 vs 至少一次 + 幂等）。
+
+### 决策
+
+1. **发布用应用内轮询 Relay**（`OutboxRelay`）：`SELECT PENDING → 逐条发送（同步等 broker 确认）→ CAS 标记 SENT`，失败累计 retry_count（≥5 降 FAILED）。不用 Debezium/CDC：少一个重组件；发送与标记之间的崩溃窗口由消费端幂等兜底——**系统语义是「至少一次 + 幂等消费」，不追求恰好一次**。
+2. **事件类型即 topic 名**（`document.index.requested` / `document.delete.requested`），聚合 id 作消息 key（同聚合有序）；租户随消息头跨进程传递（M0 载体接口 `TenantContextCarrier` 的首次生产接入：`KafkaHeadersCarrier`）。
+3. **消费端唯一键仲裁**（`IngestLedgerGuard`）：`(doc_id, version)` 主键 + `ON CONFLICT DO NOTHING` 抢占；状态机 `PROCESSING → INDEXED / DELETED / FAILED`，**FAILED 允许重抢占**（与 Kafka 重试配合，避免重试消息被仲裁挡死）；PROCESSING 卡死的超时回收由对账任务兜底（切片④）。
+4. **失败策略**：指数退避重试 ≤3 次（1s/2s/4s）→ `<topic>.DLT` 死信（FR-ING-04）。
+
+### 依据（实测）
+
+- `OutboxIngestLoopContainersTest`：写入 → 发布 → 消费 → ledger INDEXED 闭环；重复投递处理次数不变；租户经消息头跨进程还原断言通过。
+- `IngestLedgerGuardContainersTest`：16 线程并发抢占恰好 1 个赢家（M1 验收②的仲裁层先行验证；端到端向量计数随切片③）。
+
+### 代价与放弃
+
+- **放弃 CDC**：换库 / 运维成本与演示价值不匹配；轮询延迟（默认 2s）占用「P95 ≤ 5s」删除 SLO 预算（发送 2s 节奏 + 消费近瞬时，仍在线内；最终实测值随 M1 验收回填）。
+- **放弃「恰好一次」幻想**：at-least-once + 幂等是分布式系统的正确语义；好处是重试 / 重放天然安全——P3（工具幂等）与 P5（重放续跑）将复用同一方法论。
+
+### 修订（2026-10，切片③实测补充）
+
+**删除与索引共用 `(doc_id, version)` 账本行时的状态流转缺口（已在实现中修正）**：初版 `tryClaim` 仅允许 FAILED 重抢，
+导致「索引完成（INDEXED）后的删除事件」被幂等仲裁**静默跳过**（向量清理不执行；HTTP 全链路测试以 `1/DELETED/INDEXED` 超时暴露，无指向性报错）。
+修正：拆分 `tryClaimForIndex`（FAILED 可重抢）与 `tryClaimForDelete`（**INDEXED / FAILED 可重抢**——删除是索引之后的
+正常状态流转；DELETED 为文档级终态，且 `markDeleted` 按 doc_id 将全部版本行标记为 DELETED）。证据：
+`DocumentLifecycleContainersTest`（上传 → 索引 → 删除 → 产物清零）与 `IngestLedgerGuardContainersTest`
+（INDEXED → 删除抢占 → DELETED 终态）随 `mvn verify` 执行。
+
+---
+
+## ADR-006 · 对账只读发现、修复显式触发（不自动改数据）
+
+**状态**：已采纳（2026-10-07）｜M1 切片④落地
+
+### 背景
+
+P1 承诺「删除即失效有 SLO + 不一致可查询可修复」。对账任务发现残留（孤儿向量 / 卡死任务）后有两种演变：自动修复（发现即清），或只读发现 + 显式修复。
+
+### 决策
+
+**对账任务只读发现**（扫描 → 落 `t_reconcile_report` → 更新指标），**修复由显式动作触发**
+（`POST /api/v1/admin/consistency/repair`，复用删除链路的幂等清理语义：先向量后切片、账本置 DELETED）。
+
+### 依据
+
+- **可观察性**：自动修复会让不一致清单在演示 / 运维视角永远为空——而对账的价值正是「发现并记录」；
+  修复动作本身可追溯（报告 → 修复 → 复扫归零）。
+- **安全边界**：repair 只处理 `t_document.deleted_at 非空` 的文档产物——语义上只是补做既定删除，
+  不引入新状态；幂等可重跑。
+- 测试证据：`ConsistencyReconcileContainersTest`（制造删除事件丢失缺口 → scan 报告 mismatch ≥ 2 →
+  指标 ≥ 1 → repair → 复扫归零），随 `mvn verify` 执行。
+
+### 代价与放弃
+
+放弃「全自动自愈」叙事的一部分：演示录屏中「修复」需要一个显式触发（POST /repair）——
+这反而与 FR-ADM-03「一键重试」的产品形态一致（M3 页面直接调用本端点）。

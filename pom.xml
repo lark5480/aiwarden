@@ -117,10 +117,14 @@
                 <artifactId>maven-surefire-plugin</artifactId>
                 <configuration>
                     <!-- 测试分层默认值（见 AGENTS.md §4）：单测不依赖外部服务——Flyway 全局关闭、
-                         DataSource 仅装配不连接；需要真实 PostgreSQL（pgvector）的验证收敛在
-                         Testcontainers 测试类（类内用 properties = "spring.flyway.enabled=true" 显式开启）。 -->
+                         Kafka 监听器不自动启动、Outbox 发布器与对账扫描空转、DataSource 仅装配不连接；
+                         需要真实 PostgreSQL / Kafka（pgvector）的验证收敛在 Testcontainers 测试类
+                         （类内用 properties 显式开启 flyway 与 listener）。 -->
                     <systemPropertyVariables>
                         <spring.flyway.enabled>false</spring.flyway.enabled>
+                        <spring.kafka.listener.auto-startup>false</spring.kafka.listener.auto-startup>
+                        <aiwarden.outbox.relay.enabled>false</aiwarden.outbox.relay.enabled>
+                        <aiwarden.reconcile.enabled>false</aiwarden.reconcile.enabled>
                     </systemPropertyVariables>
                 </configuration>
             </plugin>

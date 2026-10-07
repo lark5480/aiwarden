@@ -51,6 +51,16 @@
             <artifactId>spring-boot-starter-webmvc</artifactId>
         </dependency>
 
+        <!-- 运维面：健康检查 + Prometheus 指标（M1 验收：不一致清单有指标；端点暴露见 application.yml） -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-registry-prometheus</artifactId>
+        </dependency>
+
         <!-- AI 层：核心件与 SB4 starter 两个坐标共存，显式声明以锁精确版本（版本形态不同，见根 pom / ADR-001） -->
         <dependency>
             <groupId>dev.langchain4j</groupId>
@@ -110,6 +120,24 @@
         <dependency>
             <groupId>org.testcontainers</groupId>
             <artifactId>testcontainers-postgresql</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>testcontainers-kafka</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <!-- 消息层：Kafka（PRD §7.1；ADR-004 实测裁决保留 Kafka，对照数据见 docs/DECISIONS.md；
+             语义回归测试与逃生梯对照测试在 com.aiwarden.start.decision 包） -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-kafka</artifactId>
+        </dependency>
+        <!-- 对照实验依赖：Redis Streams 逃生梯验证（ADR-004）；Redis 正式引入在 M2 配额/限流时再定 -->
+        <dependency>
+            <groupId>io.lettuce</groupId>
+            <artifactId>lettuce-core</artifactId>
             <scope>test</scope>
         </dependency>
     </dependencies>

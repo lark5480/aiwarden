@@ -13,4 +13,46 @@
     <artifactId>aiwarden-knowledge</artifactId>
     <name>aiwarden-knowledge</name>
     <description>知识库 / 文档 / 切片 / 向量 + 摄入 DAG（PRD §7.3）</description>
+
+    <dependencies>
+        <dependency>
+            <groupId>com.aiwarden</groupId>
+            <artifactId>aiwarden-common</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.aiwarden</groupId>
+            <artifactId>aiwarden-contract</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.aiwarden</groupId>
+            <artifactId>aiwarden-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.aiwarden</groupId>
+            <artifactId>aiwarden-governance</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-webmvc</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-jdbc</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-kafka</artifactId>
+        </dependency>
+        <!-- 事件载荷 JSON（SB4 应用层默认 Jackson 3，tools.jackson；见 AGENTS §4 约定） -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-jackson</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
 </project>

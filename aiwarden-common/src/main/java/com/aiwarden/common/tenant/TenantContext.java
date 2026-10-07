@@ -55,6 +55,16 @@ public final class TenantContext {
         return tenantId;
     }
 
+    /** 当前租户标识（数值形式，业务表 tenant_id 使用）；缺失或非数值同样拒绝执行。 */
+    public static long requireTenantIdAsLong() {
+        String tenantId = requireTenantId();
+        try {
+            return Long.parseLong(tenantId);
+        } catch (NumberFormatException e) {
+            throw new MissingTenantContextException("租户标识不是合法数值，拒绝执行：" + tenantId);
+        }
+    }
+
     /** 清理当前线程租户标识；请求 / 任务结束必须调用，避免池化线程串租户。 */
     public static void clear() {
         CURRENT_TENANT.remove();

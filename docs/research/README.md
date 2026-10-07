@@ -1,7 +1,7 @@
 # 调研文档索引（docs/research/）
 
 > 本目录是 AIWarden **立项前的调研与论证序列**，不是产品文档。
-> 产品需求看 [`../PRD.md`](../PRD.md)；技术决策看 [`../DECISIONS.md`](../DECISIONS.md)。
+> 产品需求看 [`../PRD.md`](../PRD.md)；技术决策看 [`../adr/`](../adr/README.md)（一文件一 ADR）。
 > **调研方法、数据来源与已知局限**见根 README 的「调研方法声明」一节（[`../../README.md`](../../README.md)）——**不在此处重复**。
 
 ---

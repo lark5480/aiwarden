@@ -2,7 +2,7 @@
 
 > **本文件是什么**：AI 编码代理（Claude Code / Codex / Cursor 等）在本仓库工作时的**入口文档**。
 > 只放「**写错代价高、不翻代码发现不了**」的铁律与坑；能指针就不重抄——产品需求看 [`docs/PRD.md`](docs/PRD.md)，
-> 技术决策看 [`docs/DECISIONS.md`](docs/DECISIONS.md)，对外表述红线看 [`docs/PRD.md`](docs/PRD.md) §15。
+> 技术决策看 [`docs/adr/`](docs/adr/README.md)，对外表述红线看 [`docs/PRD.md`](docs/PRD.md) §15。
 >
 > **本文件处于「随代码生长」状态**（2026-10 起；M2 完成，仓库已有业务代码）：地图 + 纪律 + 实测踩过的坑。
 > 每踩一个坑、每定一条与代码相关的约定，就往 §4 追加一条。
@@ -17,10 +17,10 @@
 | 我想知道… | 看这里 |
 |---|---|
 | 产品要做什么、验收标准、里程碑 | [`docs/PRD.md`](docs/PRD.md)（**需求唯一权威源**） |
-| 某个技术决策为什么这么选 | [`docs/DECISIONS.md`](docs/DECISIONS.md)（**决策唯一权威源**；与 PRD 冲突时以 DECISIONS 为准） |
+| 某个技术决策为什么这么选 | [`docs/adr/`](docs/adr/README.md)（**决策唯一权威源**，一文件一 ADR；与 PRD 冲突时以 ADR 为准） |
 | 立项前的调研与论证序列 | [`docs/research/`](docs/research/README.md)（含编号说明与口径提醒） |
 | 对外表述红线（README / 对外材料 / 公开表述） | [`docs/PRD.md`](docs/PRD.md) §15 |
-| 项目进度与公开范围 | [`README.md`](README.md) |
+| 项目进度与公开范围 | [`docs/STATUS.md`](docs/STATUS.md)（**易过期**，与 ADR 相反）· 对外范围见 [`README.md`](README.md) |
 
 ---
 
@@ -33,7 +33,7 @@
 |---|---|
 | `docs/PRD.md` | 受影响的 §1 / §3 / §6 / §7 / §8 / §10 / §12 / §14 / §15，并更新文首「文档版本」 |
 | `README.md` | **第一屏承诺表 + 两条边界声明 + 结论表 + 技术栈表 + 版本红线** |
-| `docs/DECISIONS.md` | 新增条目，或追加 `## 修订（YYYY-MM）` 段（**不改写原文**） |
+| `docs/adr/` | 新增 `ADR-00X-<slug>.md`，或在其末尾追加 `## 修订（YYYY-MM）` 段（**不改写原文**）；索引同步 |
 | `docs/research/06-PRD修订裁决清单.md` | 追加新裁决条目（编号顺延） |
 
 **为什么立这条**：2026-10 本轮就吃过亏——PRD v2 已把底座从 SB 3.5 反转到 SB 4.1 并写进版本红线，
@@ -82,16 +82,16 @@
 - **LangChain4j 的两处坐标版本号形态不同**：核心件是 `dev.langchain4j:langchain4j:1.21.0`，而 starter 模块是
   `dev.langchain4j:langchain4j-spring-boot4-starter:1.21.0-beta31`。
   **照抄核心件的版本号去写 starter 会直接依赖解析失败。** `-betaNN` 是 LangChain4j 对 starter / 集成模块
-  的发布惯例，不是「API 不稳定」的标记。依据与实测命令见 [`docs/DECISIONS.md`](docs/DECISIONS.md) ADR-001。
+  的发布惯例，不是「API 不稳定」的标记。依据与实测命令见 [`ADR-001`](docs/adr/ADR-001-bootstrap-versions.md)。
 - **租户上下文不引入 TransmittableThreadLocal / InheritableThreadLocal**：虚拟线程是不可复用的一次性线程、
   池化线程（`@Scheduled`）会被复用——两类边界统一走 `TenantContext` 的显式 capture（`snapshot()`）→ apply，
   缺失时 `requireTenantId()` 拒绝（**不回落默认租户**）。写异步 / 消费 / 定时任务代码时不要为了「自动透传」
-  引入 TTL 依赖；依据与单测证据见 [`docs/DECISIONS.md`](docs/DECISIONS.md) ADR-003。
+  引入 TTL 依赖；依据与单测证据见 [`ADR-003`](docs/adr/ADR-003-tenant-context-capture.md)。
 - **Jackson 在两条依赖线上各有一套，且配置属性名有陷阱**：SB 4.1.1 的**应用层默认是 Jackson 3**
   （`tools.jackson.core`，注意 groupId **不是** `com.fasterxml.jackson`），而 **LangChain4j 侧默认 Jackson 2**
   （`com.fasterxml.jackson.core`）——两套 groupId 不同，同一 classpath 上共存不冲突。
   回退应用层到 Jackson 2 默认行为的属性是 **`spring.jackson.use-jackson2-defaults`**（**`jackson2` 中间没有连字符**）；
-  写成 `use-jackson-2-defaults` **不报错，只静默失效**。依据见 [`docs/DECISIONS.md`](docs/DECISIONS.md) ADR-001 修订段。
+  写成 `use-jackson-2-defaults` **不报错，只静默失效**。依据见 [`ADR-001` 修订段](docs/adr/ADR-001-bootstrap-versions.md)。
 - **Spring Boot 4 把自动配置拆进了独立模块：集成某技术时优先找对应 `spring-boot-starter-*`，只加底层库可能「完全不装配且不报错」**——实测踩坑：只加 `org.flywaydb:flyway-core` 时应用照常启动、**Flyway 静默不执行任何迁移**（无日志、无表）；换用 `org.springframework.boot:spring-boot-starter-flyway` 才恢复「启动即迁移」。引入任何原本应存在自动配置的技术栈时，先核对 Starter 坐标。
 - **Testcontainers 在 SB 4 下有两个与 Boot 3.x 时代不同的硬约束**：① SB 4 **不再代管其版本**，
   必须在根 pom 显式导入 `org.testcontainers:testcontainers-bom`（照 Boot 3.x 写法直接引用会构建失败）；
@@ -110,8 +110,8 @@
   向量清理不执行；HTTP 全链路测试以 `1/DELETED/INDEXED` **状态超时**暴露，**全程无报错、无指向性日志**。
   修正：拆开 `tryClaimForIndex`（FAILED 可重抢）与 `tryClaimForDelete`（**INDEXED / FAILED 可重抢**）。
   **写幂等仲裁前先问一句：这个键上会不会出现合法的多次流转？** P3 工具幂等会复用同一套方法论，尤其注意。
-  依据见 [`docs/DECISIONS.md`](docs/DECISIONS.md) ADR-005 修订段。
-- **HNSW 行为学测试的三个「静默假绿」陷阱，本轮全踩过（依据见 ADR-008 修订段，测试类有完整注释）**：
+  依据见 [`ADR-005` 修订段](docs/adr/ADR-005-outbox-idempotent-consumption.md)。
+- **HNSW 行为学测试的三个「静默假绿」陷阱，本轮全踩过（依据见 [`ADR-008` 修订段](docs/adr/ADR-008-visibility-acl-model.md)，测试类有完整注释）**：
   ① **planner 不到大表不走 HNSW**——5000 / 20000 / 50000 行实测全选精确路径（Seq Scan → 并行
   `Gather Merge` → btree 表达式索引 → 主键索引，随 JSONB 过滤的选择性估算在 1/250/50000 间横跳），
   `hnsw.*` 参数根本不参与。要在测试里观察 HNSW，必须受控：事务内 `enable_seqscan=off` + 关
@@ -128,11 +128,7 @@
 
 ---
 
-## 5. 当前状态与公开范围
+## 5. 状态
 
-- **阶段**：**M2 完成（MVP 达成）**（2026-10）——四个切片全部落地：切片① P2 检索层隔离 / 切片② P3 工具副作用治理 / 切片③ P4a 配额强一致 /
-  切片④ 治理税四项输出 + MCP 最小版。**M0+M1+M2 = MVP，P1/P2/P3/P4a 四项承诺成立**（结论表已回填，见 [`README.md`](README.md)）。
-  本地 `mvn -B -ntp verify` **102 测试全绿**（start 78 / common 16 / knowledge 8；`clean` 后单次运行口径）；GitHub Actions 已在推送 / PR 上触发，状态以流水线为准。
-  治理税（i7-7700 4C8T/32GB 单机，P95）：可见集计算 3.2ms / filter 下推 7.1ms / 计量事件 0.9ms / 配额检查 4.3ms（**审计留痕开销与总开销 / 吞吐拐点 / P99 归 M4**）。
-  下一步：M3（评测门禁 20–30 条 + 前后端 + P4b 可选）、M4（P5 断点续跑 + 压测报告）。里程碑定义见 [`docs/PRD.md`](docs/PRD.md) §8。
-- **公开范围**：本仓库为公开版。编号 01、02 的调研文档、`docs/research/inbox/` 原始报告，以及个人规划类文档属**内部材料，存放于仓库外**——**不要把它们加回本仓库**。
+> **见 [docs/STATUS.md](docs/STATUS.md)**——阶段 / 测试数 / 已知边界 / 下一步 / 公开范围都在那里（**易过期**，
+> 与本文件「只增不减的坑清单」性质相反，故拆出）。阶段推进时改它，并按 §2 同步 PRD / README / ADR / 06。

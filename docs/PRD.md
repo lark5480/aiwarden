@@ -2,7 +2,7 @@
 
 | 项 | 内容 |
 |---|---|
-| **文档版本** | v2.1（立项版 v1.0 + 2026-10-06 回写 13 条裁决，依据 [06-PRD修订裁决清单](research/06-PRD修订裁决清单.md)；2026-10-07 按 [ADR-007](DECISIONS.md) 同步 §9 数据模型与 §11 风险 8；**2026-10-07 回写 M2 交付期裁决 14–18**——含 §5/§6/§8/§9/§12 的口径对齐，**未改变任何承诺或范围**） |
+| **文档版本** | v2.1（立项版 v1.0 + 2026-10-06 回写 13 条裁决，依据 [06-PRD修订裁决清单](research/06-PRD修订裁决清单.md)；2026-10-07 按 [ADR-007](adr/ADR-007-visibility-pushdown.md) 同步 §9 数据模型与 §11 风险 8；**2026-10-07 回写 M2 交付期裁决 14–18**——含 §5/§6/§8/§9/§12 的口径对齐，**未改变任何承诺或范围**） |
 | **文档状态** | **需求规划已定稿；M0 / M1 / M2 已落地（MVP 达成：P1 / P2 / P3 / P4a 成立）**——多模块骨架、租户上下文四类边界、Flyway V1–V8、Outbox → Kafka → 幂等消费 → 对账 + 计量主链路、可见集四级下推 + 越权样本门禁、工具副作用治理（幂等/补偿/二态审批）、配额强一致（预扣减/幂等/对账）、审计留痕、MCP 最小版均已上线并有容器级测试覆盖（本地 `mvn -B -ntp verify` 102 测试全绿）。**M3 / M4 为增量**；实现过程中如与本文件冲突，以 `AGENTS.md` + 代码为准，并回写本文档 |
 | **上游文档** | 调研序列 01–02（**内部材料，未随仓库公开**，见根 README「公开范围」） · [03-竞品调研与饱和度分析](research/03-竞品调研与饱和度分析.md) · [04-选题论证与差异化声明](research/04-选题论证与差异化声明.md) · [05-独立验证与交叉质询报告](research/05-独立验证与交叉质询报告.md) · [06-PRD修订裁决清单](research/06-PRD修订裁决清单.md)（本版回写的唯一依据） |
 | **定位纪律** | 本项目自称「**治理层 / 组件**」，形态为**数据面治理组件**（在 ModelClient / VectorStore / ToolExecutor 三条 SPI 边界上做治理），**不自称「平台 / 中台 / 网关」**。理由见 [04 §4.4 风险 3](research/04-选题论证与差异化声明.md) 与 [06 号清单裁决 1](research/06-PRD修订裁决清单.md) |
@@ -355,9 +355,9 @@ aiwarden/
 3. `contract` 不得依赖任何业务模块（契约单向）；
 4. 禁止出现「先查全量再在应用层过滤权限」的路径（以 `*Service` 的违规方法签名守护）。
 
-### 7.4 关键决策记录（ADR，正式落点为开工后创建的 `docs/DECISIONS.md`）
+### 7.4 关键决策记录（ADR，正式落点为 [`docs/adr/`](adr/README.md)（一文件一 ADR，索引在同目录 README））
 
-> **ADR-001 / ADR-002 已于 2026-10-06 落盘至 [`docs/DECISIONS.md`](DECISIONS.md)**（含开工前的实测验证证据）。本节保留结论摘要与指针，**冲突时以 DECISIONS.md 为准**；并与 §7.3 ArchUnit 规则保持一致引用。
+> **ADR-001 ~ ADR-011 已落盘至 [`docs/adr/`](adr/README.md)**（含开工前的实测验证证据与实现期修订段）。本节保留结论摘要与指针，**冲突时以 ADR 为准**；并与 §7.3 ArchUnit 规则保持一致引用。
 
 **ADR-001 · 选 Spring Boot 4.1 + LangChain4j 1.20+（spring-boot4-starter 线）**
 - **结论**：底座 **SB 4.1.1**（OSS 支持至 2027-07-31；勿选 4.0——其 OSS 支持也将于 2026-12-31 EOL）；AI 层核心件 `dev.langchain4j:langchain4j:1.21.0` + starter `dev.langchain4j:langchain4j-spring-boot4-starter:1.21.0-beta31`（避开官方标记 do not use 的 1.19.1）。**两处版本号形态不同，必须分别书写。**
@@ -408,15 +408,15 @@ aiwarden/
 | `t_api_key` | id, tenant_id, key_hash, status | 仅存哈希，明文只返回一次 |
 | `t_knowledge_base` | id, tenant_id, org_id, name | 权限维度之一 |
 | `t_document` | id, tenant_id, kb_id, version, status, deleted_at | `version` 支撑切片版本化 |
-| `t_chunk` | id, doc_id, version, seq, content, meta | `meta` 含可见集过滤字段（`tenantId` / `orgId` / `kbId` / `docId` ACL），供 filter 下推。**M1 过渡版只含 docId/version/kbId**，M2 按 [ADR-007](DECISIONS.md) 落实清单补齐 |
-| `t_kb_acl` | kb_id, user_id, effect(ALLOW/DENY) | 知识库级 ACL 例外（跨组织授权 / 显式拒绝）；M2/P2 随 [ADR-008](DECISIONS.md) 落地。**`(tenant_id, kb_id)` 组合外键绑定到 `t_knowledge_base(tenant_id, id)`**（V8）：跨租户 ACL 行在写入时即被拒绝（裁决 15） |
+| `t_chunk` | id, doc_id, version, seq, content, meta | `meta` 含可见集过滤字段（`tenantId` / `orgId` / `kbId` / `docId` ACL），供 filter 下推。**M1 过渡版只含 docId/version/kbId**，M2 按 [ADR-007](adr/ADR-007-visibility-pushdown.md) 落实清单补齐 |
+| `t_kb_acl` | kb_id, user_id, effect(ALLOW/DENY) | 知识库级 ACL 例外（跨组织授权 / 显式拒绝）；M2/P2 随 [ADR-008](adr/ADR-008-visibility-acl-model.md) 落地。**`(tenant_id, kb_id)` 组合外键绑定到 `t_knowledge_base(tenant_id, id)`**（V8）：跨租户 ACL 行在写入时即被拒绝（裁决 15） |
 | `t_doc_acl` | doc_id, user_id, effect(ALLOW/DENY) | 文档级 ACL 例外（单独授权 / 屏蔽敏感文档）；与 t_kb_acl 同构。**`(tenant_id, doc_id)` 组合外键绑定到 `t_document(tenant_id, id)`**（V8） |
-| `t_vector` | chunk_id, embedding, meta | pgvector；`meta` 与 `t_chunk.meta` 一致，且**必须含上述可见集过滤维度**——M2 的可见集过滤**直接下推到本列**（[ADR-007](DECISIONS.md)）。⚠️ **缺字段会静默 0 命中**：查询语法完全正确，只是匹配不到任何行 |
+| `t_vector` | chunk_id, embedding, meta | pgvector；`meta` 与 `t_chunk.meta` 一致，且**必须含上述可见集过滤维度**——M2 的可见集过滤**直接下推到本列**（[ADR-007](adr/ADR-007-visibility-pushdown.md)）。⚠️ **缺字段会静默 0 命中**：查询语法完全正确，只是匹配不到任何行 |
 | `t_outbox_event` | id, aggregate_id, type, payload, status, retry_count | 事务性发件箱（与业务写入同事务） |
 | `t_ingest_ledger` | doc_id, version, status, node, error | 幂等键唯一约束 + 摄入状态机 + 对账数据源 |
 | `t_agent_session` | id, tenant_id, user_id, status | — |
 | `t_agent_step` | session_id, step_no, name, input, output, **version**, status | Checkpoint + 版本 CAS |
-| `t_tool_invocation` | idem_key(唯一), tenant_id, session_id, step_no, tool, status | **幂等键是唯一约束**，重复调用返回首次结果；状态机含 `PENDING_APPROVAL/REJECTED`（二态审批，[ADR-009](DECISIONS.md)） |
+| `t_tool_invocation` | idem_key(唯一), tenant_id, session_id, step_no, tool, status | **幂等键是唯一约束**，重复调用返回首次结果；状态机含 `PENDING_APPROVAL/REJECTED`（二态审批，[ADR-009](adr/ADR-009-tool-side-effect-governance.md)） |
 | `t_compensation_log` | invocation_id, action, status, attempt | 补偿而非重试；计划 PENDING → 逆序执行（ADR-009） |
 | `t_ticket` | idem_key(唯一), status | P3 演示替身（PRD §10：不做退款；工单零资金风险）；idem_key 唯一是「双重幂等」的最终防线（ADR-009） |
 | `t_llm_call_log` | tenant_id, session_id, step_no, tool, model, prompt_tokens, completion_tokens, latency_ms, cost | **单表明细 + 租户/时间索引**（分片已裁剪，见 §10） |
@@ -480,7 +480,7 @@ aiwarden/
 | 5 | **pgvector 单库也没解决全部不一致**（异步写入、缓存、embedding 队列仍会产生窗口） | **主动承认边界**：承诺的是「有 SLO + 可对账 + 可查询」，不是「绝对一致」；README 写明残余窗口 |
 | 6 | **虚拟线程 + TTL 的 traceId 透传坑** | FR-OBS-03 单独立项并留下结论文档 |
 | 7 | **Kafka 引入运维负担 + Testcontainers 反馈循环长** | 单节点 KRaft + Compose 一键起；若最终判定收益不足，退化为 Redis Streams 并在决策记录（DECISIONS.md）留档取舍；**Kafka → Redis Streams 决策点固定为第 4 周末，逾期即执行退化并留档**（裁决 11） |
-| 8 | **metadata filter 下推到 HNSW 的选择性风险**——pgvector 的 HNSW 是**近似**索引，可见集过滤很窄时遍历可能凑不满 K 个候选，表现为「**0 越权，但召回塌陷**」。**实测（[ADR-007](DECISIONS.md)）：默认配置 `hnsw.iterative_scan=off` 在 1% 选择性下返回 1/10 条，无报错、无日志** | ① **机制已定**：可见集过滤**下推到 `t_vector.meta`**（JOIN 退场），采纳 `strict_order` + **两段式精确回退**——见 [ADR-007](DECISIONS.md) 的实测表与落实清单；② 边界自洽——与 §3 的 B1 呼应：**不承诺召回率，但承诺不越权**；③ 「**高选择性查询下的召回率**」列入压测报告作为容量边界（§6）；④ 缓解手段**不是**调大 `ef_search`——它是固定候选预算、合法上限 1000、不自适应 |
+| 8 | **metadata filter 下推到 HNSW 的选择性风险**——pgvector 的 HNSW 是**近似**索引，可见集过滤很窄时遍历可能凑不满 K 个候选，表现为「**0 越权，但召回塌陷**」。**实测（[ADR-007](adr/ADR-007-visibility-pushdown.md)）：默认配置 `hnsw.iterative_scan=off` 在 1% 选择性下返回 1/10 条，无报错、无日志** | ① **机制已定**：可见集过滤**下推到 `t_vector.meta`**（JOIN 退场），采纳 `strict_order` + **两段式精确回退**——见 [ADR-007](adr/ADR-007-visibility-pushdown.md) 的实测表与落实清单；② 边界自洽——与 §3 的 B1 呼应：**不承诺召回率，但承诺不越权**；③ 「**高选择性查询下的召回率**」列入压测报告作为容量边界（§6）；④ 缓解手段**不是**调大 `ef_search`——它是固定候选预算、合法上限 1000、不自适应 |
 
 ### 11.1 止损点与降级纪律（预先约定，**不允许为了达标准而调测试**）
 

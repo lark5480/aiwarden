@@ -65,4 +65,20 @@ class TenantContextTest {
 
         assertThat(snapshot.tenantId()).contains("tenant-c");
     }
+
+    @Test
+    void requireTenantIdAsLong_parsesNumericTenant() {
+        TenantContext.setTenantId("42");
+
+        assertThat(TenantContext.requireTenantIdAsLong()).isEqualTo(42L);
+    }
+
+    @Test
+    void requireTenantIdAsLong_rejectsNonNumericTenant() {
+        TenantContext.setTenantId("tenant-alpha");
+
+        assertThatThrownBy(TenantContext::requireTenantIdAsLong)
+                .isInstanceOf(MissingTenantContextException.class)
+                .hasMessageContaining("不是合法数值");
+    }
 }

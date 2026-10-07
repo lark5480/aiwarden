@@ -39,7 +39,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * 不参与）——若不加受控条件，本测试会因「永远不触发回退」而失败或假绿。因此：
  * ① 事务内 {@code enable_seqscan=off} + 关并行 gather（排除精确路径旁路，见
  * {@code RetrievalHnswPushdownContainersTest} 类注释的完整实测清单）；
- * ② 大表规模（50000 行）+ seed 阶段移除 btree 表达式索引；
+ * ② 表规模见 HIDDEN_CHUNKS（受控条件下需足以让 planner 选 HNSW）+ seed 阶段移除 btree 表达式索引；
  * ③ 类级配置把 {@code aiwarden.retrieval.hnsw.max-scan-tuples} 压到 1，模拟绕回上限耗尽。
  *
  * <p><b>自证链（防「测试通过却什么都没证明」，AGENTS.md 教训）</b>：
@@ -63,12 +63,12 @@ class RetrievalExactFallbackContainersTest {
     private static final long USER = 8001L;
     private static final String QUERY = "exact fallback probe";
     /**
-     * 塌陷构造：可见 10 行 + 不可见 49990 行——HNSW 首次 {@code ef_search} 候选几乎全被 filter 挡住，
+     * 塌陷构造：可见 10 行 + 不可见 HIDDEN_CHUNKS 行——HNSW 首次 {@code ef_search} 候选几乎全被 filter 挡住，
      * 「凑满 K」必须依赖 iterative 绕回；再叠加 {@code max-scan-tuples=1} 限制绕回额度，塌陷必然发生。
      * （教训：若数据全可见，首次候选即凑满 10 条，max_scan_tuples 根本用不上，塌陷永远不触发。）
      */
     private static final int VISIBLE_CHUNKS = 10;
-    private static final int HIDDEN_CHUNKS = 49_990;
+    private static final int HIDDEN_CHUNKS = 4_990;
 
     @Container
     @ServiceConnection
@@ -121,6 +121,14 @@ class RetrievalExactFallbackContainersTest {
 
         // 向量加扰动（前 3 维随行号变化）：全 tie 向量是 HNSW 病态输入（图结构等距退化），
         // 见 RetrievalHnswPushdownContainersTest 类注释的实测记录。
+        //
+        // ⚠️ **先 DROP 向量索引再灌数据，最后重建**（2026-10-07 实测优化）：
+        // 若保留 V2 建好的 HNSW 索引，bulk insert 会对**每一行**都做一次图维护（插入-选邻居-连边）。
+        // 本机实测（50000 行）：`vectorInsert=7.9s` 但 **`hnswBuild=97.9s`**，批量构建占本类总耗时 71%；
+        // 改成「drop → 插入 → 一次 CREATE INDEX」后总耗时 334s → 145s。得到**结构与逐行插入等价**的索引，
+        // 断言力不变。注意顺序——`idx_t_vector_tenant`（btree 表达式索引）的移除仍必须发生在**插入之后**
+        // （走索引的 insert 更慢，且它不影响结果），见下方「受控实验前提」。
+        jdbcTemplate.execute("DROP INDEX IF EXISTS idx_t_vector_embedding_hnsw");
         jdbcTemplate.update("""
                 INSERT INTO t_vector (chunk_id, embedding, meta)
                 SELECT c.id,
@@ -131,6 +139,8 @@ class RetrievalExactFallbackContainersTest {
                        c.meta
                 FROM t_chunk c WHERE c.tenant_id = ?
                 """, TENANT);
+        jdbcTemplate.execute("CREATE INDEX idx_t_vector_embedding_hnsw "
+                + "ON t_vector USING hnsw (embedding vector_cosine_ops)");
         jdbcTemplate.execute("ANALYZE t_vector");
         // 受控实验前提：移除 btree 表达式索引与主键索引（本类容器专用），否则受控下 planner 走精确路径
         jdbcTemplate.execute("DROP INDEX IF EXISTS idx_t_vector_tenant");

@@ -16,6 +16,10 @@
 | ADR-005 | Outbox 发布与幂等消费时序（轮询 Relay + 至少一次 + 唯一键仲裁） | 已采纳（2026-10-07） |
 | ADR-006 | 对账只读发现、修复显式触发（不自动改数据） | 已采纳（2026-10-07） |
 | ADR-007 | 可见集过滤机制：向量表 metadata filter 下推（JOIN 退场） | 已采纳（2026-10-07） |
+| ADR-008 | 可见集 ACL 模型与下推算法（主体、四级语义、拒绝与审计） | 已采纳（2026-10-07） |
+| ADR-009 | 工具副作用治理机制（幂等键状态机、补偿逆序、工具可见面） | 已采纳（2026-10-07） |
+| ADR-010 | 配额强一致机制（Redis Lua 预扣减、幂等、对账、限流） | 已采纳（2026-10-07） |
+| ADR-011 | 治理税度量方法（四项微计时口径）与 MCP 最小版取舍 | 已采纳（2026-10-07） |
 
 ---
 
@@ -298,7 +302,7 @@ M2 要实现 P2 的四级可见集（tenant ∩ org ∩ kbACL ∩ docACL），�
 - **调大 `ef_search` 不是解法**：它确实能修好（1000 与 `strict_order` 同效），但它是**固定候选预算、不自适应**
   （本次等于扫 20% 的表），且**合法上限就是 1000**，堆不出可预测的行为。
 
-### 落实清单（M2 开工执行）
+### 落实清单（M2 开工执行；**#1 / #2 / #3 已于 2026-10-07 落地**：V3 迁移回填 + 表达式索引 + metaJson 写入 + 断言）
 
 1. V3 迁移：`UPDATE t_vector SET meta = c.meta FROM t_chunk c WHERE t_vector.chunk_id = c.id`（回填 meta 一致）；
    补 meta 必含可见集字段（tenantId / orgId / kbId / docId）；
@@ -316,3 +320,399 @@ M2 要实现 P2 的四级可见集（tenant ∩ org ∩ kbACL ∩ docACL），�
 
 - 放弃「JOIN 简单直白」的短期便利：多一层 meta 字段治理（写路径保持 meta 与 t_chunk.meta 一致，由同一 Store 写入口保证）；
 - 接受「近似索引 + 过滤」的固有边界：以 iterative_scan + 精确回退 + 压测量化承接，而非回避——这正是与「换库回避问题」的分界线。
+
+---
+
+## ADR-008 · 可见集 ACL 模型与下推算法（P2 落地：主体、四级语义、拒绝与审计）
+
+**状态**：已采纳（2026-10-07）｜M2 切片①（P2 检索层隔离）开工前落盘；实现后只回填验证数据，不改变语义
+
+### 背景
+
+ADR-007 已定「过滤下推到 `t_vector.meta`」，但四级可见集（`tenant ∩ org ∩ kbACL ∩ docACL`，FR-PERM-01）
+在数据模型上如何表达尚未定型：主体（用户 / 组织）从哪来、kbACL / docACL 用什么载体、空集拒绝的边界语义、
+越权留痕的落点。本 ADR 在编码前把这些问题定死，避免再次出现「文档描述了不存在的机制」。
+
+### 决策
+
+1. **主体（Principal）**：`userId` + `orgId`（可空）。M2 过渡来源 = 请求头 `X-Aiwarden-User-Id` / `X-Aiwarden-Org-Id`
+   （**认证层输出的模拟**——真实部署由 API Key / JWT 解析产出，届时只换来源、不换传播机制，与 ADR-003 对租户的处理同构）；
+   `PrincipalContext`（common 模块）承载，缺失时 `requireUserId()` 拒绝——**不回落匿名主体**。
+2. **四级语义**（全部在 SQL 侧计算，不允许应用层后过滤）：
+   - **tenant**：来自 `TenantContext` 的硬边界（meta.tenantId）；
+   - **org**：`t_knowledge_base.org_id`——`NULL` = 租户公共，非 NULL = 仅该组织可见；用户 `orgId` 为空 → 仅公共；
+   - **kbACL**：`t_kb_acl(kb_id, user_id, effect[ALLOW|DENY])`——`ALLOW` = 跨组织例外授权，`DENY` = 显式拒绝；
+   - **docACL**：`t_doc_acl(doc_id, user_id, effect)`——文档级例外（单独授权 / 屏蔽敏感文档）。
+3. **可见集算法**（检索前，`VisibilitySetCalculator`，全部走索引点查）：
+   - 可见 KB = `(org 门：org_id IS NULL OR org_id = :orgId) − DENY ∪ ALLOW`；请求指定 `kbId` 时求交集；
+   - 文档例外 = `t_doc_acl` 的 ALLOW / DENY 两个集合；
+   - **空集（含交集为空）→ 检索前直接拒绝**（`SecurityException` → HTTP 403），不进入向量查询（FR-PERM-01）。
+4. **下推形态**（`RetrievalService`，事务内）：
+   `WHERE meta->>'tenantId' = ? AND (meta->>'kbId' = ANY(?) OR meta->>'docId' = ANY(?)) AND NOT (meta->>'docId' = ANY(?))`
+   + `set_config('hnsw.iterative_scan','strict_order',true)`；HNSW 路径返回条数 < K 时走**精确回退**
+   （`enable_indexscan=off` 的过滤后精确排序），回退计数器 `aiwarden_retrieval_exact_fallback_total`。
+5. **越权留痕**：拒绝路径写 `t_audit_log(action=RETRIEVAL_DENIED, actor=userId)`；`t_audit_log` 由数据库触发器
+   拒绝 UPDATE / DELETE——「不可变留痕」具备代码级证据（测试可断言变更被拒）。
+
+### 依据
+
+1. **PRD 引文**：FR-PERM-01（四级 + 空集拒绝）、FR-PERM-04（20 条样本 CI 门禁）、FR-PERM-05（审计留痕，越权同样留痕）、
+   §9（`t_vector.meta` 必须含过滤维度）。
+2. **kbACL / docACL 为什么用「表 + effect」而不是给业务表加 visibility 枚举列**：枚举无法表达「对特定用户的跨组织例外」（ALLOW）
+   与「对特定用户屏蔽」（DENY）；两张表结构与读写路径同构（一张形态两处用）；meta 下推只消费「可见集合」的产物，与载体结构解耦。
+3. **拒绝为什么用 403 而不是 404**：检索是「搜索」语义——无权与不存在同为 403，不可区分（同样不泄露存在性）；
+   资源读取（GET KB / 文档状态）继续按 FR-KB-01 用 404。
+
+### 代价与放弃
+
+- **Principal 在 M2 不做真实性校验**（请求头可伪造）——「认证层输出模拟」的已知边界，真实部署由认证层保证；
+- 放弃「给 t_document / t_knowledge_base 打 visible 列」的简单方案：表达力不足（无用户级例外），且权限语义分散在多处；
+- 放弃「可见集预计算缓存」：演示规模不需要，缓存会让「权限变更立即生效」复杂化——每次检索前一次轻量点查。
+
+### 验证（随 `mvn verify` 执行；实现后回填实测数据）
+
+| 断言 | 证据 |
+|---|---|
+| 检索类越权样本拦截率 100%（16 条；+P3 工具类 4 条 = 合计 20 条） | `RetrievalVisibilityContainersTest`：跨租户 / 跨组织 / 无权限 KB / 已删除各 4 条，每条先以「有权者命中同一内容」排除假阳性 |
+| 下推 SQL 确实走 HNSW 索引 | `RetrievalHnswPushdownContainersTest` 的 `EXPLAIN` 自证（断言含 `idx_t_vector_embedding_hnsw`）；小表会退化为顺序扫描，故种 5000 行 |
+| 窄可见集仍凑满 K（iterative_scan 生效） | 同上：5000 行中仅 10 行可见、K=10 → 返回 10 条（ADR-007 实测默认配置仅返回 1/10） |
+| 精确回退不是死代码 | `max-scan-tuples=1` 触发回退：结果仍为 K + 计数器递增 |
+| 越权尝试留痕且不可变 | 拒绝后 `t_audit_log` 出现 `RETRIEVAL_DENIED`；UPDATE / DELETE 被触发器拒绝 |
+| 检索入口不可绕过可见集 | `ArchitectureTest`：`RetrievalService` 公开检索方法签名必须含 `VisibilitySet`；`*Service/*Store/*Calculator` 不得声明全量查询方法（含自证夹具） |
+
+## 修订（2026-10，切片①实现实测）
+
+P2 落地过程中实测出五条与「机制是否真的生效」直接相关的结论（全部有可复现测试，正文不改写）：
+
+1. **受控实验的完整旁路清单**（5000/20000/50000 行逐一实测）：planner 对检索 SQL 的真实选择依次是
+   ① `Seq Scan + Sort`；② 关串行序扫后绕道「并行序扫 + Gather Merge + Sort」；③ 再关并行后首选
+   `idx_t_vector_tenant`（btree 表达式索引，估算 rows=250）；④ 移除 btree 后转头 `t_vector_pkey`
+   （估算 rows=1 的幻觉）——**根因是 planner 对 JSONB `meta` 过滤的选择性估算在 1/250/50000 间横跳**。
+   影响两面：a) 中小规模下 HNSW 本就不被执行（精确路径无召回风险——与 §11 风险 8「不承诺召回率」自洽）；
+   b) 要观察 HNSW 路径，测试必须受控：事务内 `enable_seqscan=off` + 关并行 gather + seed 阶段移除
+   btree 与主键索引（见 `RetrievalHnswPushdownContainersTest` 类注释）。
+2. **`hnsw.max_scan_tuples` 只限制 iterative 绕回额度，首次 `ef_search` 候选不受限**：实测「可见行全部
+   先插入」时，HNSW 图入口点落在可见团内，默认配置（off）也能凑满 10——「凑满 K」不再能证明
+   iterative_scan 生效（假绿）；把可见行改为**后插入**后，off 实测返回 0 条，「凑满 K + 回退计数=0」
+   才成为真证据。**测试数据的插入顺序是 HNSW 行为学断言的一部分。**
+3. **审计写入必须独立事务（REQUIRES_NEW）**：拒绝路径的形态是「写审计 → 抛拒绝异常」，同事务则异常
+   回滚把审计一起滚掉——「越权留痕」实测为零条。`AuditLogWriter.append` 已改为 `REQUIRES_NEW`。
+4. **回退路径必须重开 `enable_seqscan`**：若调用环境（外层事务 / 运维设置）设过 `enable_seqscan=off`，
+   回退的「顺序扫描 → 过滤 → 排序」会被迫再走索引——回退等于没回退。`exactFallback` 已重开该开关。
+5. **回退触发条件收敛为「HNSW 返回数 < 可见总数」**：先做精确计数（同谓词）再决定是否回退——
+   「可见总数本来就 < K」不回退（避免小可见集的无谓全扫）；计数与回退都属治理税，有计数器可观测。
+
+验证回填：检索类越权样本 16/16 拦截（`RetrievalVisibilityContainersTest`，含基线假阳性排除与审计不可变）；
+HNSW 受控自证 2/2（`RetrievalHnswPushdownContainersTest`）；塌陷回退 1/1
+（`RetrievalExactFallbackContainersTest`，计数器递增证明回退不是死代码）；工具类 4 条样本随 P3 切片合计 20 条。
+
+## 修订（2026-10，M2 复核后的 P2 修正）
+
+独立复核 P2 时发现三处「防线 / 证据」缺口，正文决策语义不变，补三条落地细节：
+
+1. **租户谓词此前是「零证据的承重墙」**：常规跨租户样本其实是被 OR 的**左支**
+   `meta->>'kbId' = ANY(kbIds)` 挡住的（`kbIds` 只可能含本租户 KB），把
+   `AND v.meta->>'tenantId' = ?` 整行删掉，那批用例**依然全绿**。现补
+   `tenantPredicateIsLoadBearing_andCrossTenantAclRowIsImpossible`：用**同一条下推 SQL 去掉租户谓词**
+   （且 `kbIds` 故意留空，使命中只能来自 `allowDocIds`，否则本租户文档会一起通过而使断言失去判别力
+   ——实测踩过一次：count=3 而非 1）直查向量表，证明「外租户 docId 一旦进入可见集即可命中」，
+   因此产品路径的 0 命中只能归因于租户谓词。
+2. **跨租户 ACL 行的 DB 层防线（V8，对应决策 2 的 kbACL / docACL）**：两张 ACL 表原先只有
+   `UNIQUE (kb_id, user_id)` / `(doc_id, user_id)`，**没有任何约束把 `tenant_id` 绑定到所指向对象的
+   属主租户**——一行「租户 B 写、指向租户 A 的 kb_id」的 `DENY` 会遮蔽租户 A 的用户，并凭唯一约束
+   占掉其 ACL 槽位（**跨租户拒绝向量**）。现补 `(tenant_id, id)` 组合唯一键 + 组合外键
+   （`t_kb_acl → t_knowledge_base`、`t_doc_acl → t_document`，`ON DELETE CASCADE`）：
+   这类行在写入时即被拒绝。应用层也已给 DENY 子查询补上 `a.tenant_id = kb.tenant_id`
+   （原实现漏了，ALLOW 分支本来就有）——**双防线**。
+3. **回退的 GUC 必须复位（补齐决策 4）**：`set_config(..., true)` 是事务本地，不会随方法返回而消失。
+   `exactFallback` 原先把 `enable_indexscan/bitmapscan` 设为 `off` 后**不复位**——调用方在同一事务内
+   再次检索时下推路径会**静默不再被使用**（结果仍正确，机制失效、治理税暴涨）。
+   现 `finally` 复位，并由 `RetrievalExactFallbackContainersTest` 断言回退后
+   `enable_indexscan/bitmapscan` 回到 `on`（同事务内取值）。
+
+> 另：`RetrievalService.search` 增加与 `TenantContext` 的**交叉校验**（可见集是值对象，
+> ArchUnit 只能守护签名含 `VisibilitySet`，守护不了**来源**）；越界即 403 + 审计。见第二部分裁决 15。
+
+---
+
+## ADR-009 · 工具副作用治理机制（幂等键状态机、补偿逆序、工具可见面）
+
+**状态**：已采纳（2026-10-07）｜M2 切片②（P3）开工前落盘；实现后只回填验证数据，不改变语义
+
+### 背景
+
+FR-TOOL-01~05 要求「写操作工具带幂等键、失败走补偿、断网重放不产生第二张工单」。M1 已有成熟的
+「至少一次 + 唯一键仲裁 + 补偿/对账」方法论（ADR-005/006），但工具侧有两个新问题：
+① **状态机要回答重放仲裁**——同一个幂等键上会出现哪些合法状态、每种状态下重放该干什么
+（ADR-005 修订段的教训：键上的合法多次流转没想清楚就会静默跳过）；② **「补偿而非重试」的边界在哪**——
+确定失败的调用能不能重放？不确定状态（PROCESSING 卡死）又怎么办？本 ADR 在编码前定死。
+
+### 决策
+
+1. **幂等键**：`idemKey = 业务键 + ':' + 会话ID + ':' + 步骤指纹`，步骤指纹 = `sha256(tool|stepNo|输入规范 JSON)` 前 16 hex（输入按 key 排序序列化，同输入同键）；唯一约束 `(tenant_id, idem_key)` 仲裁。
+2. **状态机与重放仲裁矩阵**（`t_tool_invocation.status`）：
+
+   | 重放时的现有状态 | 处理 |
+   |---|---|
+   | （无行）| INSERT `PROCESSING` → 执行 |
+   | `SUCCEEDED` | 返回首次结果（`replayed=true`），不重执行 |
+   | `FAILED` | 返回首次失败记录（`replayed=true`），**不重执行**——「补偿而非重试」：确定失败不重放，恢复走补偿链路 |
+   | `PROCESSING` 未超租约 | 409（另一执行中，调用方稍后重放） |
+   | `PROCESSING` 超租约（lease 可配，默认 5 分钟） | CAS 重抢后执行——「不确定状态可重试」：原执行者可能已崩溃 |
+
+   核心语义：**不确定（in-doubt）可重试，确定失败不重试**——与「至少一次 + 幂等」一脉相承而不与「补偿而非重试」相矛盾。
+3. **双重幂等**：幂等键仲裁是应用层防线；业务表唯一约束是最终防线——`t_ticket.idem_key = 业务键` 唯一（同一来源单号在任何会话 / 任何重放下都只建一张单），工具自身的执行也幂等（`ON CONFLICT DO NOTHING` 后读现有）。
+4. **补偿**：失败调用落库后，对**同会话更早（id < 失败调用）的 `SUCCEEDED` 且工具声明可补偿**的调用，**生成 `PENDING` 补偿计划**（`t_compensation_log`，`UNIQUE(invocation_id)` 幂等）；**补偿执行器显式触发**（`POST /api/v1/agent/compensations/run`），按 `invocation_id DESC`（**逆序**）逐个执行可补偿工具的 `compensate`，每行动作落 `SUCCEEDED/FAILED` + `attempt++`，并写审计（动作顺序可断言）。
+5. **工具可见面（FR-PERM-03）**：装配期配置 allow 白名单定死（`aiwarden.agent.tools.allowed`）+ 代码级 `EXCLUDED`（显式禁 `web_search`/`web_fetch`，配置误加也不可见）；未可见面工具调用 **403 + 审计 `TOOL_DENIED`**（不泄露存在性）；可见面列表 API 只返回白名单内工具（「不进模型请求体」的读侧）。
+6. **计量**：工具调用随事务写 outbox 计量（tool 维度，复用 M1 的 CallMeteringPayload 骨架）。
+
+### 依据
+
+- PRD 引文：FR-TOOL-01（幂等键三要素）/ FR-TOOL-02（补偿而非重试）/ FR-TOOL-04（主演示：断网重放工单数 == 1）/ FR-PERM-03（可见面装配期定死）/ §4.3（补偿链路）/ §10（工单是零资金风险演示替身）。
+- 方法论复用：M1 的「至少一次 + 唯一键仲裁 + 失败留痕」直接平移（ADR-005 修订段的教训已内化进决策 2 的矩阵——先把键上的合法流转列完再写仲裁）。
+
+### 代价与放弃
+
+- 放弃「FAILED 自动重试队列」：与「补偿而非重试」纪律冲突；失败调用的恢复靠补偿 / 人工（与 FR-ING-04 的摄入重试语义不同——摄入是基础设施重试，工具是业务副作用）。
+- `PROCESSING` 超租约重抢意味着**执行窗口内可能有两个执行者**（原执行者只是慢而不是死）——由双重幂等（决策 3）兜底：重复执行最多多一次工具调用，不可能重复落库副作用。
+- 不做审批会签 / 多级审批（FR-TOOL-03 二态开关为应做档，随后落地：`PENDING_APPROVAL` 状态 + approve/reject，挂起上下文 = 已落库的输入快照，恢复不丢上下文）。
+
+### 验证（随 `mvn verify` 执行；实现后回填）
+
+| 断言 | 证据 |
+|---|---|
+| 断网重放工单数 == 1（**主演示**）| `ToolInvocationContainersTest`：首次调用成功后丢弃响应（客户端未收到）→ 同键重放 → `replayed=true` + 结果与首次一致 + 工单表仍 1 行 |
+| 并发重放只执行一次 | 16 线程同键并发 → 工单 1 行 + 无第二张（其余线程得到复用结果或 409）|
+| PROCESSING 卡死可租约重抢 | 手工将已成功调用置回 PROCESSING 并回拨 updated_at → 重放重抢执行成功且工单不重复 |
+| FAILED 重放不重执行 | 失败调用重放 → 返回首见失败记录，无新执行痕迹 |
+| 补偿逆序清算 | 两个成功建单（主单、关联单）+ 指派失败 → 生成 2 条 PENDING 计划 → 执行后两单 CANCELLED，审计顺序 = 先关联单后主单（逆序）|
+| 工具可见面 4 条越权样本 | `ToolWhitelistContainersTest`：web_search / web_fetch / unknown_tool / 注册未授权工具 均 403 + 审计；可见面列表只含白名单工具（含入总 20 条门禁）|
+
+## 修订（2026-10，切片②实现回填）
+
+三个测试类 12 测试全绿（`ToolInvocationContainersTest` 5 / `ToolWhitelistContainersTest` 5 / `ToolApprovalContainersTest` 2），
+验证表逐行达成。实现期补充三条落地细节（语义不变）：
+
+1. **二态审批已随切片②落地**（原「随后落地」项）：`PENDING_APPROVAL` 挂起、`approve`（CAS → 从输入快照恢复执行）、`reject`（CAS → `REJECTED` 终态，**不触发补偿**——驳回是「不执行」不是「执行失败」）；重放矩阵扩展为「SUCCEEDED / FAILED / PENDING_APPROVAL / REJECTED 均返回首见状态」。开关为类级配置 `aiwarden.agent.tools.require-approval`（默认空，不影响既有调用）。
+2. **工具注册表保持有序**：`Map.copyOf` 会丢失 TreeMap 顺序（实测：可见面列表断言失败暴露），改用 `Collections.unmodifiableSortedMap`——列表接口输出稳定字典序。
+3. **计量挂点**：每次工具调用（成功/失败）随事务写 outbox 计量（tool 维度），P4a 四维归因的工具维度由此归位。
+
+## 修订（2026-10，M2 复核后的 P3 修正）
+
+对 P3 做独立复核后发现三处**静默不生效 / 静默假成功**缺陷并修正，其中两条改动了 SPI 与响应契约：
+
+1. **幂等指纹必须保留数字精度**（决策 1 的正确性前提）。默认 Jackson 把 JSON 小数反序列化为
+   `Double`——精度在进入业务代码**之前**就已丢失，于是两个仅在 17 位有效数字之后不同的输入会得到
+   **同一个指纹**，第二次调用静默重放首次结果（不报错、不执行、无日志）。本机实测（Jackson 3.1.5）：
+   `12345678901234567890.1234…890` 与 `……891` 的规范形式**完全相同**；`readTree` 也不救
+   （得到的是 `DoubleNode`，同样已丢精度）——治本点只能在**反序列化配置**上。
+   落地：`JacksonPrecisionConfiguration`（start 装配根）对共享 ObjectMapper 开
+   `USE_BIG_DECIMAL_FOR_FLOATS`——必须放在共享 mapper 上，因为 `@RequestBody` 在 Controller 边界
+   就已完成解析，修在指纹计算处等于没修。回归门禁
+   `idempotencyFingerprint_preservesNumericPrecision`（已验证可失败：关掉该开关即红）。
+
+2. **幂等键成分的长度语义上收到入口**（决策 1 的健壮性）。键 = 业务键 + 会话 + 16 hex，
+   原先两侧口径不一致：契约无长度约束而列宽是 `VARCHAR(160)`，200 字符业务键会走到 `INSERT`
+   由 PostgreSQL 报 `value too long` → **500**（不是 400）。落地：入口显式校验
+   （`businessKey` / `sessionId` ≤ 64、`stepNo` ∈ [0, 100000]，越界 400；三者上限之和 146 ≪ 列宽），
+   并由 **V7 迁移**把列宽放宽到 256 留出余量。回归门禁
+   `oversizedIdempotencyKeyParts_areRejectedWith400_beforeHittingDb`。
+
+3. **补偿的「成功」必须有证据，失败必须可重跑**（决策 4 的语义收口）。三条修正：
+   - **SPI 契约变更**：`ToolExecutor.compensate` 返回类型 `void` → **`int`（受影响行数）**，
+     默认实现由「空实现」改为**抛 `UnsupportedOperationException`**（空实现会让误用表现为静默成功）。
+     执行器按行数分流：`>0` 记 `SUCCEEDED`，`=0` 记 **`NO_OP`**（终态，单列计数）——
+     否则会出现「审计写 SUCCEEDED + 计数器 +1，而数据库什么都没变」的假成功。
+   - **`compensable()` 执行期再判一次**：计划生成时已过滤，但装配变更后已存在的脏计划仍可能
+     指向不可补偿工具，执行期守卫给出有指向性的失败原因。
+   - **FAILED 可重跑**：执行集合从「仅 PENDING」改为 `PENDING ∪ FAILED(attempt < 上限)`——
+     原先补偿失败即永久卡在「半补偿」且第二次 run 恒返回 `executed=0`，与 SPI javadoc
+     承诺的「等待人工/重跑」自相矛盾。超过上限的单列 `exhausted`（真正需人工介入的那部分）。
+   - **响应契约变更**：`CompensationRunResponse` 增 `noOp` 与 `exhausted` 两个计数字段
+     （succeeded 与 noOp 混在一起会让「补偿成功率」失去意义）。
+   - 指标：`aiwarden_compensation_total{result=succeeded|noop|failed}`、
+     `aiwarden_compensation_exhausted_total`。回归门禁
+     `compensation_marksNoOpInsteadOfFakeSuccess_andRetriesFailedPlans`。
+
+> 本批与 ADR-010 修订段同源：三处都是「不报错、只是静默不生效」形态（`AGENTS.md` §4 的归纳规则）。
+
+---
+
+## ADR-010 · 配额强一致机制（Redis Lua 预扣减、幂等、对账、限流）
+
+**状态**：已采纳（2026-10-07）｜M2 切片③（P4a 配额强一致）开工前落盘
+
+### 背景
+
+P4a 承诺「租户级配额**预扣减 + 幂等 + 对账**，超限直接 429」。问题不是想象出来的：New API 官方漏洞库
+GO-2026-6242/6243（整数溢出致**负数自增额度**、Redis 配额缓存覆盖绕过）与 issue #5290（quota **连预扣缓冲都没有**）
+/#5441（部分模型 0 元购）就是「配额逻辑没写对」的现实样本。本 ADR 定死：预扣减的存储与原子性、幂等键、
+结算/释放、挂点顺序（与幂等仲裁/限流的关系）、429 语义、对账口径。
+
+### 决策
+
+1. **存储与原子性**：配额账本在 **Redis（Lua 脚本原子执行）**；键：
+   `aiwarden:quota:usage:{tenant}:{period}`（INCRBY 用量）、`aiwarden:quota:reserve:{requestKey}`（值=预扣量，TTL 72h）、
+   `aiwarden:quota:settled:{requestKey}`（结算标记）；**不引 PG 行锁**（高频扣减不适合 PG；且与限流共用 Redis 管道——PRD FR-COST-07 原文）。
+2. **三步语义**：`reserve`（幂等：**requestKey 复用调用幂等键**——同一逻辑调用的重放/重抢不重复扣）→
+   `settle`（差额校正 `actual − reserved`，结算标记保证只应用一次）→ `release = settle(0)`（归还预扣）。
+3. **挂点顺序**（以工具调用为例）：可见面 → **限流**（租户+工具双维度，Lua ZSET 滑动窗口）→ 幂等仲裁
+   （**终态重放不消耗配额**）→ 新执行/重抢路径才 `reserve` → 执行 → 成功 `settle` / 业务失败 `release` /
+   审批挂起 `release`（approve 恢复执行时再 `reserve`）。
+4. **超限 429 且不留残留**：`reserve` 超限抛 `QuotaExceededException` → **事务回滚**（claim 的 PROCESSING 行同步消失，
+   配额恢复后同键可重试）；指标 `aiwarden_budget_reject_total`；审计 `QUOTA_EXCEEDED`（REQUIRES_NEW 独立留痕，不被回滚）。
+5. **对账口径**（FR-COST-05）：`GET /api/v1/admin/billing/reconcile` 比对 **Redis usage vs 明细表 SUM(tokens)**——
+   前提：消耗配额的操作其明细 token == 扣减当量（工具调用写 `prompt_tokens=当量`）；差异清单 + 差异率落 `t_reconcile_report(type=BILLING)`。
+   语义对齐 B2 边界：**不是绝对一致**——reserve 后宕机的泄漏窗口由对账发现。
+6. **限流**（FR-COST-07）：与配额共用 Redis 管道；Lua ZSET 滑动窗口（租户+工具双维度）；超限 429 带 `Retry-After`；
+   指标 `aiwarden_rate_limit_reject_total`；限流不写审计（它防的是频率，不是越权）。
+7. **预算载体**：`t_budget`（tenant_id + period 唯一，period=YYYY-MM）；**未配置 = 不启用配额检查**（演示默认零门槛）。
+8. **演示当量**：无真实 LLM 时，工具调用以配置当量计价（`aiwarden.quota.tool-token-cost`，默认 100）——
+   口径为「操作当量」；真实模型接入时替换为真实 token 数（CallMeteringPayload 已预留模型维度）。
+
+### 依据
+
+- PRD 引文：P4a（§3）、FR-COST-01/02/04/05/07、§4.2 时序（幂等键 → 配额检查 → 超限 429）；New API 漏洞证据（GO-2026-6242/6243、#5290/#5441）。
+- 与方法论对齐：预扣减的「先占后结」与 M1 对账体系同源（发现与修复分离；残余窗口如实披露）。
+
+### 代价与放弃
+
+- **放弃「强一致不丢」**：Redis 与明细双写存在窗口（reserve 后进程宕机 → 预扣未结算）——由对账发现，不假装不存在（B2）。
+- **放弃 PG 行锁方案**：扣减频率×行锁冲突不可接受；Redis Lua 单线程原子足够本场景。
+- **审批挂起时 release、approve 时再 reserve**：挂起期间不占用配额（避免长期挂起耗尽额度）；代价是 approve 可能失败（429）——语义正确。
+- **限流参数按「租户+工具」维度落地**（无模型路由时的「模型维度」替身），真实模型接入后加模型维度。
+
+### 验证（随 `mvn verify` 执行；实现后回填）
+
+| 断言 | 证据 |
+|---|---|
+| 超限 429 + 指标 + 审计 + 零残留 | `QuotaEnforcementContainersTest`：小预算下第 N+1 次调用 429、`aiwarden_budget_reject_total` ≥1、审计 `QUOTA_EXCEEDED`、账本无该调用行；提额后同键可成功 |
+| 预扣减幂等与差额结算 | `QuotaContainersTest`（Redis 容器）：同 requestKey 二次 reserve 不重复扣；settle(actual≠reserved) 正确校正；release 归还；16 线程并发 reserve 不超卖（limit 内恰好 N 个成功）|
+| 对账零差异与缺口发现 | 正常扣减后 reconcile 差异 0；手工向 Redis 注入缺口 → 差异可见 + 报告落库 |
+| 限流 429 + Retry-After | `RateLimitContainersTest`：限额压低后第 N+1 个请求 429 且带 `Retry-After` |
+| 四维归因落库 | 工具调用明细含 session/step/tool（`t_llm_call_log`），GET /api/v1/admin/usage 可按多维过滤 |
+| 审计检索接口 | GET /api/v1/admin/audit 可查越权与配额拒绝留痕 |
+
+## 修订（2026-10，切片③实现回填）
+
+四个测试类 14 测试全绿（`QuotaEnforcementContainersTest` 3 / `RateLimitContainersTest` 1 /
+`ToolInvocationContainersTest` 5 / `ToolWhitelistContainersTest` 5，工具两类的 Redis 容器适配含在内）。实现期补充四条落地细节：
+
+1. **决策 3 的挂起语义落地为「挂起保留预扣」**（原文写作「挂起 release、approve 再 reserve」）：实现时发现
+   release 会写「已结算」标记，导致 approve 时的幂等 reserve 命中不扣、settle 又被标记挡住——该逻辑调用**永不结算**。
+   修正：挂起时保留预扣（资源已预留），**驳回时释放**（release 无预扣时为安全 no-op）；
+   approve 时 reserve 幂等命中（不重复扣；挂起后才配预算也能生效）。
+2. **settle 仅在配额激活时调用**（reserve 返回值携带 active）：避免「未启用预算也写结算标记」的污染；
+   而 release / 超限拒绝无需条件——前者无预扣时差额为 0，后者事务回滚不留残留。
+3. **限流先于幂等仲裁**：被限流的请求不产生任何账本行（测试断言恰好 N 行）；限流维度落地为「租户 + 工具」。
+4. **计量消费体抽为可直调方法**（`MeteringEventConsumer.consume(payloadJson)`）：测试以真实消费逻辑验证
+   四维明细落库（无需 Kafka broker）；旧工具测试类补 Redis 容器（调用入口已触碰配额/限流管道）。
+
+## 修订（2026-10，M2 复核后的配额修正）
+
+对 P4a 做了一次独立复核（跨租户 / 幂等 / 泄漏面），发现三处**静默不生效**缺陷并修正。以下为现状描述，
+上文决策 1 / 2 的键形态与 `release = settle(0)` 两处表述已被本节取代：
+
+1. **预扣 / 结算键必须带租户**（决策 1 的 `{requestKey}` → `{tenant}:{requestKey}`）。DB 侧唯一约束是
+   `(tenant_id, idem_key)`，因此两个租户**可以**持有完全相同的 `idemKey`；键不带租户时租户 B 会命中
+   租户 A 留下的键 → 走幂等分支「允许且不扣减」→ **免费调用**，而明细仍写入 B 的账 → 对账负差异。
+   实测证据（本机 redis:7.4-alpine）：修前同 requestKey 下租户 2 的 usage 恒为空、返回 `{allowed, 0, 幂等命中}`；
+   修后为 `{allowed, 100, 非幂等}`、两租户各扣 100。回归门禁 `sameRequestKeyAcrossTenants_deductsIndependently`。
+2. **`release` 不再是 `settle(0)`，改为「回退用量 + 删除预扣键与结算标记」**（决策 2 的 `release = settle(0)` 作废）。
+   原因：`settle(0)` 只写标记、保留预扣键，导致同一逻辑调用释放后再次执行时 `reserve` 命中残留键**免扣**，
+   而随后 `settle(actual == reserved)` 差额为 0 不执行 INCRBY → **这次真实执行完全不计费**（usage 恒 0，明细却有行）。
+   同时 `release` 增加「已结算则 no-op」守卫——否则一次多余的 release 会把已计入的用量抹掉。
+   为实现幂等，`release` 独立为 `redis/quota_release.lua`。回归门禁 `releaseThenReserveThenSettle_chargesExactlyOnce`。
+3. **用量 key 补 TTL、结算标记 TTL 取 2× 预扣 TTL、预扣脚本拒绝非正数入参**：前者消除「每租户每账期一个
+   常驻键」的无界增长；中者避免「预扣过期而标记仍在」造成的重复扣减；后者是 New API
+   GO-2026-6242/6243（负值反向自增额度）同形态的第二道防线（当前调用方恒传正数，属防御性）。
+
+**预算管理接口补租户边界**：`GET/PUT /api/v1/admin/budgets/{tenantId}` 原先只调 `requireTenantIdAsLong()`
+**却丢弃返回值**，从不校验路径租户与调用方租户一致 → 租户 A 可读**并改写**任意租户预算（改大即解除限流、
+改小即 DoS）。现统一校验，不一致返回 403。回归门禁 `budgetEndpoints_rejectCrossTenantAccess`。
+
+**同批修正（P2 / P3 复核发现，与配额无关但同源「静默不生效」形态）**：
+- `RetrievalService.search` 增加与 `TenantContext` 的交叉校验——可见集是值对象，ArchUnit 只能守护签名，
+  守护不了来源；此前任何调用方 `new VisibilitySet(别的租户, …)` 即可越权读取（当前仓库唯一构造点是
+  Controller，故不可达，属 latent）。同时补 `t_doc_acl` 跨租户脏行的判别性用例。
+- `ToolInvocationService` 原先只 `catch (ToolExecutionException)`，工具抛 `IllegalArgumentException` /
+  其它 `RuntimeException` 时事务回滚而 **Redis 预扣不回滚** → 残留预扣键变成「免扣券」。
+  现按异常类型分区处理：参数 / 状态非法 → 归还预扣后原样抛出（无副作用，不生成补偿计划）；
+  其它未包装异常 → 落失败账 + 归还预扣 + 生成补偿计划（不假定「无副作用」）。
+- 计量明细的 `prompt_tokens` 由 `(int)` 强转改为 `Math.toIntExact`：溢出截断会静默破坏
+  「明细 token == 扣减当量」这条对账前提。
+
+> ⚠️ **验证表原列 `QuotaContainersTest` 未按该形态创建**——实际覆盖见上文列出的
+> `QuotaEnforcementContainersTest` / `RateLimitContainersTest`；本修订段的测试计数已按实际类名书写。
+
+---
+
+## ADR-011 · 治理税度量方法（四项微计时口径）与 MCP 最小版取舍
+
+**状态**：已采纳（2026-10-07）｜M2 切片④（收官）开工前落盘
+
+### 背景
+
+M2 验收 ⑥ 要求输出**四项治理税开销**（可见集计算 / filter 下推 / 计量事件 / 配额检查，附机器规格）；
+PRD §11.1 止损条款 **L4**：M2 末测不出 → 写「待验证」并说明缺哪个指标，**不得写估算值**。
+同时 FR-TOOL-05（MCP 最小版）为**可做档**（超预算降 roadmap）。度量方法与 MCP 取舍需先定。
+
+### 决策
+
+1. **度量方法：组件级微计时**（warmup 50 次 + 采样 200 次，取 P50 / P95 / max），在容器测试内执行；
+   机器规格由测试自动输出（JVM `availableProcessors` + 最大堆）并人工核实物理规格。**不引 JMH**（口径明确优先）；
+   HTTP 全链路口径、吞吐拐点、P99、每请求总开销留 **M4 压测报告**（与 PRD §12 分层一致）。
+2. **四项口径定义**（一次问答链路的治理环节）：
+   - ① 可见集计算 = `VisibilitySetCalculator.calculate` 全程（点查 SQL 含在内存）；
+   - ② filter 下推 = `RetrievalService.search` 全程（构建参数 + 下推 SQL 执行；**不含**①，口径不重叠）；
+   - ③ 计量事件 = `OutboxWriter.append`（写 outbox 行；Kafka 发送在 Relay 异步，不计入本环节——如实标注）；
+   - ④ 配额检查 = `QuotaGuard.reserveForToolInvocation`（预算点查 + Redis Lua）。
+3. **判定标准：宽松上界断言防灾难性退化**（如 P95 < 50ms），**不做硬性能门禁**——CI 机器差异大，硬门禁会 flaky；
+   数字如实进结论表，趋势留报告。
+4. **基准数据规模如实标注**：微基准用小数据（可见集/检索/配额均为点查或小 SQL），
+   结果代表「治理环节的固定开销」，不代表大表下的绝对耗时——后者属 M4 压测范围。
+5. **MCP 最小版取舍**：先实测官方 SDK 坐标（`io.modelcontextprotocol.sdk`）的解析与 SB4 兼容性；
+   可行则实现最小版（内置工具 + 工具名装配期归一化 + 复用 P3 幂等/审计/配额管道），
+   **不可行或超预算则按 PRD 预批降 roadmap 并在本文档留档**——不在结论表承诺。
+   无论 MCP 是否落地，**工具名归一化**（非法字符→下划线 + 撞名加哈希后缀）都随本切片实施（FR-TOOL-05 的踩坑前置）。
+
+### 依据
+
+- PRD：M2 验收 ⑥、§6 治理税口径（裁决 13）、§12 结论表分层（M2 四项 / M4 总开销）、§11.1 L4。
+- 直接进结论表的数字必须**当场可复现**——微计时测试随 `mvn verify` 执行，输出块即证据。
+
+### 代价与放弃
+
+- 放弃 JMH / 独立压测框架：引入成本与输出价值不匹配（M4 压测会补端到端口径）；
+- 放弃「吞吐旁路对比」（开/关配额的吞吐差）：需 HTTP 压测口径，M4 补；
+- 机器规格如实标注：本机为 **i7-7700（4 物理核 / 8 逻辑核）+ 32GB**——与 PRD「8 核 32G」的
+  逻辑核口径对齐，报告同时标注物理核数。
+
+### 验证（随 `mvn verify` 执行；实现后回填）
+
+| 断言 | 证据 |
+|---|---|
+| 四项开销输出（带规格）| `GovernanceTaxContainersTest`：输出四行 GOVERNANCE-TAX 块（P50/P95/max）+ 规格行；宽松上界断言 |
+| 工具名归一化 | 单测：非法字符替换 / 撞名哈希后缀 / 稳定可重复 |
+| MCP 可行性 | `mvn dependency:get` 实测记录（可行→实现；不可行→降 roadmap 留档）|
+
+## 修订（2026-10，切片④实现回填）
+
+**四项治理税实测数字**（i7-7700：4 物理核 / 8 逻辑核 + 32GB；JVM availableProcessors=8、堆 8GB；warmup 50 + 采样 200）：
+
+| 环节 | P50 | P95 | max |
+|---|---|---|---|
+| ① 可见集计算 | 1.542ms | 3.243ms | 4.016ms |
+| ② filter 下推（检索全程）| 4.776ms | 7.118ms | 9.787ms |
+| ③ 计量事件（写 outbox 行）| 0.458ms | 0.923ms | 1.749ms |
+| ④ 配额检查（预算点查 + Redis Lua）| 2.709ms | 4.260ms | 5.398ms |
+
+口径边界（如实标注）：微基准小数据、组件级调用——代表治理环节的**固定开销**；总开销边界 / 吞吐拐点 / P99 留 M4 压测报告。
+
+**MCP 最小版已落地**（属可做档，未降 roadmap）：官方 SDK **2.0.1** 实测可用——注意 2.x 模块结构变化：
+独立 `mcp-spring-webmvc` / `server-servlet` artifact 停于 0.18.4，**Servlet Streamable transport 已并入核心件**
+（`io.modelcontextprotocol.server.transport.HttpServletStreamableServerTransportProvider`，随 `io.modelcontextprotocol.sdk:mcp` 聚合件）。
+实现：白名单工具经**工具名归一化**后暴露（`McpServerContainersTest` 断言 tools/list = create_ticket/assign_ticket）；
+tools/call 复用 P3 管道（幂等重放 replayed=true、不建第二张单）；身份经 `McpTransportContext` 显式携带。
+两条新坑已入 AGENTS §4（PER_CLASS × Testcontainers 顺序；MCP handler 线程边界）。
+

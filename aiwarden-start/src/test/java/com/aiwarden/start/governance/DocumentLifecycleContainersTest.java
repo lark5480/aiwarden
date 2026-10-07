@@ -1,5 +1,6 @@
 package com.aiwarden.start.governance;
 
+import com.aiwarden.common.principal.PrincipalContext;
 import com.aiwarden.common.tenant.TenantContext;
 import com.aiwarden.contract.knowledge.CreateKnowledgeBaseRequest;
 import com.aiwarden.contract.knowledge.DocumentDeleteResponse;
@@ -121,6 +122,17 @@ class DocumentLifecycleContainersTest {
                 SELECT vector_dims(embedding) FROM t_vector WHERE meta->>'docId' = ? LIMIT 1
                 """, Integer.class, String.valueOf(uploaded.docId()));
         assertThat(dims).isEqualTo(1536);
+
+        // ADR-007 下推地基：meta 含可见集字段（tenantId 必含），且 chunk / vector 两侧一致
+        String metaTenant = jdbcTemplate.queryForObject(
+                "SELECT meta->>'tenantId' FROM t_vector WHERE meta->>'docId' = ? LIMIT 1",
+                String.class, String.valueOf(uploaded.docId()));
+        assertThat(metaTenant).isEqualTo("100");
+        Integer metaMismatch = jdbcTemplate.queryForObject("""
+                SELECT count(*) FROM t_chunk c JOIN t_vector v ON v.chunk_id = c.id
+                WHERE c.meta IS DISTINCT FROM v.meta
+                """, Integer.class);
+        assertThat(metaMismatch).isZero();
 
         // P4a 计量落库（与 Outbox 共用消费骨架）：索引处理已写入 3 条嵌入计量事件，发布并等待落库
         outboxRelay.pollOnce();
@@ -264,12 +276,11 @@ class DocumentLifecycleContainersTest {
      * 这类缺陷不会被任何用例发现。
      *
      * <p>这是个**能失败的断言**：确定性嵌入下，用租户 A 的切片原文查询，最近邻就是它自己；
-     * 一旦 {@code RetrievalService} 丢掉 {@code WHERE c.tenant_id = ?}，租户 B 必然命中此处。
+     * 一旦下推过滤丢掉租户条件，租户 B 必然命中此处。
      *
-     * <p>租户 B 在本用例中没有任何文档，故其命中集合应为空——任何一条命中都意味着跨租户泄漏。
-     *
-     * <p>范围说明：M1 只做租户级过滤；组织 / 知识库 / 文档三级 ACL 的可见集下推与 20 条越权样本
-     * 门禁属 M2（PRD §8）。
+     * <p>租户 B 先建立<b>自己的可见集</b>再查询——排除「空可见集 → 403」路径，
+     * 直击「可见集非空但无该内容」的命中边界（ADR-008 空集拒绝后，无可见 KB 的租户
+     * 查任何内容都会在计算阶段被拒，不再是 200 空列表）。
      */
     @Test
     void crossTenantRetrieval_returnsNoHits() throws Exception {
@@ -284,6 +295,9 @@ class DocumentLifecycleContainersTest {
         assertThat(search(TENANT_A, firstChunk))
                 .anyMatch(hit -> hit.docId() == uploaded.docId());
 
+        // 租户 B 有自己的可见 KB（可见集非空）
+        createKnowledgeBase(TENANT_B, "kb-tenant-b-search");
+
         // 同一段文本，换租户查：不得命中
         assertThat(search(TENANT_B, firstChunk)).isEmpty();
     }
@@ -291,8 +305,18 @@ class DocumentLifecycleContainersTest {
     // ---- helpers ----
 
     private List<RetrievalHit> search(String tenant, String query) throws Exception {
-        HttpResponse<String> response = post("/api/v1/retrieval/search", tenant,
-                new RetrievalSearchRequest(query, 10));
+        // M2：检索入口要求主体（ADR-008）——统一以「无组织归属」主体查询；
+        // 本类建的知识库均为公共（org_id 为空），无组织主体即可见。
+        HttpRequest request = HttpRequest.newBuilder(URI.create(baseUrl + "/api/v1/retrieval/search"))
+                .header(TenantContext.TENANT_ID_HEADER, tenant)
+                .header(PrincipalContext.USER_ID_HEADER, "9901")
+                .header("Content-Type", "application/json")
+                .method("POST", HttpRequest.BodyPublishers.ofString(
+                        objectMapper.writeValueAsString(new RetrievalSearchRequest(query, 10, null)),
+                        StandardCharsets.UTF_8))
+                .build();
+        HttpResponse<String> response = httpClient.send(request,
+                HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
         assertThat(response.statusCode()).isEqualTo(200);
         return objectMapper.readValue(response.body(), RetrievalSearchResponse.class).hits();
     }

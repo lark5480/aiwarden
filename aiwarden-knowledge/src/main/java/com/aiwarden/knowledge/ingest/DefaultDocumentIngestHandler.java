@@ -45,7 +45,8 @@ public class DefaultDocumentIngestHandler implements DocumentIngestHandler {
 
         DocumentIngestStore.DocumentRow document = store.requireDocument(tenantId, payload.docId());
         List<String> chunks = chunker.chunk(document.content());
-        store.indexDocument(tenantId, payload.docId(), payload.version(), document.kbId(), chunks);
+        store.indexDocument(tenantId, payload.docId(), payload.version(), document.kbId(),
+                document.orgId(), chunks);
         log.info("摄入完成：docId={} version={} 切片数={}", payload.docId(), payload.version(), chunks.size());
     }
 }

@@ -37,6 +37,8 @@
         <langchain4j.version>1.21.0</langchain4j.version>
         <langchain4j-starter.version>1.21.0-beta31</langchain4j-starter.version>
         <archunit.version>1.5.1</archunit.version>
+        <!-- MCP 官方 Java SDK（FR-TOOL-05 最小版；2.x 聚合件含 core + Jackson3 实现 + Servlet transport） -->
+        <mcp-sdk.version>2.0.1</mcp-sdk.version>
         <!-- Testcontainers：SB 4.x 不再代为管理其版本（与 Boot 3.x 不同，须显式锁版） -->
         <testcontainers.version>2.0.5</testcontainers.version>
     </properties>
@@ -99,6 +101,13 @@
                 <groupId>dev.langchain4j</groupId>
                 <artifactId>langchain4j-spring-boot4-starter</artifactId>
                 <version>${langchain4j-starter.version}</version>
+            </dependency>
+
+            <!-- MCP 官方 Java SDK（FR-TOOL-05 最小版） -->
+            <dependency>
+                <groupId>io.modelcontextprotocol.sdk</groupId>
+                <artifactId>mcp</artifactId>
+                <version>${mcp-sdk.version}</version>
             </dependency>
 
             <!-- 架构守护（CI 红线，PRD §7.3） -->

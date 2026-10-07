@@ -13,4 +13,41 @@
     <artifactId>aiwarden-agent</artifactId>
     <name>aiwarden-agent</name>
     <description>Agent 编排：确定性 DAG + Checkpoint + 工具执行（幂等 / 补偿 / 二态审批）（PRD §7.3）</description>
+
+    <dependencies>
+        <dependency>
+            <groupId>com.aiwarden</groupId>
+            <artifactId>aiwarden-common</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.aiwarden</groupId>
+            <artifactId>aiwarden-contract</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.aiwarden</groupId>
+            <artifactId>aiwarden-core</artifactId>
+        </dependency>
+        <!-- 工具治理管道复用治理层：审计留痕（AuditLogWriter）/ 计量事件（OutboxWriter） -->
+        <dependency>
+            <groupId>com.aiwarden</groupId>
+            <artifactId>aiwarden-governance</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-jdbc</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-webmvc</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-jackson</artifactId>
+        </dependency>
+        <!-- MCP 最小版（FR-TOOL-05）：官方 SDK——mcp 聚合件含 core + Jackson3 实现 + Servlet Streamable HTTP transport -->
+        <dependency>
+            <groupId>io.modelcontextprotocol.sdk</groupId>
+            <artifactId>mcp</artifactId>
+        </dependency>
+    </dependencies>
 </project>

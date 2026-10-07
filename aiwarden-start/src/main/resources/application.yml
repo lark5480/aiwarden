@@ -14,6 +14,11 @@ spring:
   flyway:
     enabled: true
     locations: classpath:db/migration
+  # Redis：配额预扣减 / 租户限流（ADR-010；与 docker-compose 的 redis 容器对齐）
+  data:
+    redis:
+      host: ${AIWARDEN_REDIS_HOST:localhost}
+      port: ${AIWARDEN_REDIS_PORT:6379}
 
 # 运维面：Prometheus 指标端点（含 aiwarden_vector_orphan_total / aiwarden_ingest_stuck_total）
 management:
@@ -21,3 +26,14 @@ management:
     web:
       exposure:
         include: health,prometheus
+
+# P3 工具治理（FR-PERM-03 / ADR-009）：装配期定死的会话级可见面白名单——
+# 不在名单内的工具不可见、不可调用（显式禁 web_search/web_fetch 在 ToolWhitelist 代码层）
+aiwarden:
+  agent:
+    tools:
+      allowed: create_ticket,assign_ticket
+    tool-invocation:
+      processing-lease-seconds: 300   # PROCESSING 超租约可 CAS 重抢（「不确定可重试」）
+  # 配额/限流默认值均在组件 @Value 内（tool-token-cost=100、reserve-ttl=72h、限流 60s/1000 次）；
+  # 未配置预算 = 不启用配额检查（ADR-010 决策 7）

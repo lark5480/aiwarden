@@ -2,8 +2,8 @@
 
 | 项 | 内容 |
 |---|---|
-| **文档版本** | v2.0（立项版 v1.0 + 2026-10-06 回写 13 条裁决，依据 [06-PRD修订裁决清单](research/06-PRD修订裁决清单.md)） |
-| **文档状态** | **需求规划已定稿**——M0 已开工（多模块骨架已落地），业务代码尚未开始编写；实现过程中如与本文件冲突，以 `AGENTS.md` + 代码为准，并回写本文档 |
+| **文档版本** | v2.0（立项版 v1.0 + 2026-10-06 回写 13 条裁决，依据 [06-PRD修订裁决清单](research/06-PRD修订裁决清单.md)；2026-10-07 按 [ADR-007](DECISIONS.md) 同步 §9 数据模型与 §11 风险 8——**未改变任何承诺或范围**） |
+| **文档状态** | **需求规划已定稿；M0 / M1 已落地**——多模块骨架（Spring Boot 4.1.1 + LangChain4j 双坐标）、租户上下文四类边界、Flyway V1/V2、以及 Outbox → Kafka → 幂等消费 → 对账 + 计量主链路均已上线，并有容器级测试覆盖（pgvector / Kafka / Redis）。**M2 起步**；实现过程中如与本文件冲突，以 `AGENTS.md` + 代码为准，并回写本文档 |
 | **上游文档** | 调研序列 01–02（**内部材料，未随仓库公开**，见根 README「公开范围」） · [03-竞品调研与饱和度分析](research/03-竞品调研与饱和度分析.md) · [04-选题论证与差异化声明](research/04-选题论证与差异化声明.md) · [05-独立验证与交叉质询报告](research/05-独立验证与交叉质询报告.md) · [06-PRD修订裁决清单](research/06-PRD修订裁决清单.md)（本版回写的唯一依据） |
 | **定位纪律** | 本项目自称「**治理层 / 组件**」，形态为**数据面治理组件**（在 ModelClient / VectorStore / ToolExecutor 三条 SPI 边界上做治理），**不自称「平台 / 中台 / 网关」**。理由见 [04 §4.4 风险 3](research/04-选题论证与差异化声明.md) 与 [06 号清单裁决 1](research/06-PRD修订裁决清单.md) |
 
@@ -408,8 +408,8 @@ aiwarden/
 | `t_api_key` | id, tenant_id, key_hash, status | 仅存哈希，明文只返回一次 |
 | `t_knowledge_base` | id, tenant_id, org_id, name | 权限维度之一 |
 | `t_document` | id, tenant_id, kb_id, version, status, deleted_at | `version` 支撑切片版本化 |
-| `t_chunk` | id, doc_id, version, seq, content, meta | `meta` 含 org/kb/doc ACL 字段（供 filter 下推） |
-| `t_vector` | chunk_id, embedding, meta | pgvector；`meta` 与 `t_chunk.meta` 一致，保证 filter 可下推 |
+| `t_chunk` | id, doc_id, version, seq, content, meta | `meta` 含可见集过滤字段（`tenantId` / `orgId` / `kbId` / `docId` ACL），供 filter 下推。**M1 过渡版只含 docId/version/kbId**，M2 按 [ADR-007](DECISIONS.md) 落实清单补齐 |
+| `t_vector` | chunk_id, embedding, meta | pgvector；`meta` 与 `t_chunk.meta` 一致，且**必须含上述可见集过滤维度**——M2 的可见集过滤**直接下推到本列**（[ADR-007](DECISIONS.md)）。⚠️ **缺字段会静默 0 命中**：查询语法完全正确，只是匹配不到任何行 |
 | `t_outbox_event` | id, aggregate_id, type, payload, status, retry_count | 事务性发件箱（与业务写入同事务） |
 | `t_ingest_ledger` | doc_id, version, status, node, error | 幂等键唯一约束 + 摄入状态机 + 对账数据源 |
 | `t_agent_session` | id, tenant_id, user_id, status | — |
@@ -477,7 +477,7 @@ aiwarden/
 | 5 | **pgvector 单库也没解决全部不一致**（异步写入、缓存、embedding 队列仍会产生窗口） | **主动承认边界**：承诺的是「有 SLO + 可对账 + 可查询」，不是「绝对一致」；README 写明残余窗口 |
 | 6 | **虚拟线程 + TTL 的 traceId 透传坑** | FR-OBS-03 单独立项并留下结论文档 |
 | 7 | **Kafka 引入运维负担 + Testcontainers 反馈循环长** | 单节点 KRaft + Compose 一键起；若最终判定收益不足，退化为 Redis Streams 并在决策记录（DECISIONS.md）留档取舍；**Kafka → Redis Streams 决策点固定为第 4 周末，逾期即执行退化并留档**（裁决 11） |
-| 8 | **metadata filter 下推到 HNSW 的选择性风险**——pgvector 的 HNSW 是**近似**索引，可见集过滤很窄时（如某用户仅对单篇文档可见）遍历可能凑不满 K 个候选，表现为「**0 越权，但召回塌陷**」 | ① 这是**已知取舍**而非缺陷，与 §3 的 B1 边界声明呼应（**不承诺召回率，但承诺不越权**）；② 缓解手段写进设计：`ef_search` 可调，高选择性查询**降级到全文检索或缩小 K**（与 FR-RET-03「检索可用性 > 检索完备性」一致）；③ 把「**高选择性查询下的召回率**」列入压测报告，作为容量边界的一部分（§6） |
+| 8 | **metadata filter 下推到 HNSW 的选择性风险**——pgvector 的 HNSW 是**近似**索引，可见集过滤很窄时遍历可能凑不满 K 个候选，表现为「**0 越权，但召回塌陷**」。**实测（[ADR-007](DECISIONS.md)）：默认配置 `hnsw.iterative_scan=off` 在 1% 选择性下返回 1/10 条，无报错、无日志** | ① **机制已定**：可见集过滤**下推到 `t_vector.meta`**（JOIN 退场），采纳 `strict_order` + **两段式精确回退**——见 [ADR-007](DECISIONS.md) 的实测表与落实清单；② 边界自洽——与 §3 的 B1 呼应：**不承诺召回率，但承诺不越权**；③ 「**高选择性查询下的召回率**」列入压测报告作为容量边界（§6）；④ 缓解手段**不是**调大 `ef_search`——它是固定候选预算、合法上限 1000、不自适应 |
 
 ### 11.1 止损点与降级纪律（预先约定，**不允许为了达标准而调测试**）
 

@@ -13,4 +13,38 @@
     <artifactId>aiwarden-governance</artifactId>
     <name>aiwarden-governance</name>
     <description>治理层（核心差异化）：Outbox · 幂等消费 · 补偿 · 对账 · 可见集与 filter 下推 · 配额预算 · 成本归因（PRD §7.3）</description>
+
+    <dependencies>
+        <dependency>
+            <groupId>com.aiwarden</groupId>
+            <artifactId>aiwarden-common</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.aiwarden</groupId>
+            <artifactId>aiwarden-contract</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.aiwarden</groupId>
+            <artifactId>aiwarden-core</artifactId>
+        </dependency>
+        <!-- 治理机制用显式 SQL（幂等 ON CONFLICT / CAS 标记 / 对账 JOIN），不用 ORM -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-jdbc</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-kafka</artifactId>
+        </dependency>
+        <!-- 对账报告接口（governance.api） -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-webmvc</artifactId>
+        </dependency>
+        <!-- 指标（aiwarden_vector_orphan_total 等 Gauge） -->
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-core</artifactId>
+        </dependency>
+    </dependencies>
 </project>

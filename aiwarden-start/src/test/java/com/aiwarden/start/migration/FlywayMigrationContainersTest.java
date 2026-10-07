@@ -65,5 +65,10 @@ class FlywayMigrationContainersTest {
         Integer vectorExtension = jdbcTemplate.queryForObject(
                 "SELECT count(*) FROM pg_extension WHERE extname = 'vector'", Integer.class);
         assertThat(vectorExtension).isEqualTo(1);
+
+        // V3（ADR-007 下推地基）：tenantId 表达式索引存在
+        Integer tenantIndex = jdbcTemplate.queryForObject(
+                "SELECT count(*) FROM pg_indexes WHERE indexname = 'idx_t_vector_tenant'", Integer.class);
+        assertThat(tenantIndex).isEqualTo(1);
     }
 }

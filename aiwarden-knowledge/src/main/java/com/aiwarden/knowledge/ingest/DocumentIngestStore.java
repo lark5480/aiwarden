@@ -12,6 +12,7 @@ import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.ObjectMapper;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -41,15 +42,19 @@ public class DocumentIngestStore {
         this.outboxWriter = outboxWriter;
     }
 
-    /** 读待摄入文档；不存在或已删除 → {@link DocumentNotFoundException}（FR-ING-04 不可重试类）。 */
+    /** 读待摄入文档（含 kb.org_id，供 meta 可见集字段装配）；不存在或已删除 → {@link DocumentNotFoundException}（FR-ING-04 不可重试类）。 */
     public DocumentRow requireDocument(long tenantId, long docId) {
         List<DocumentRow> rows = jdbcTemplate.query("""
-                        SELECT id, kb_id, content, version, (deleted_at IS NOT NULL) AS deleted
-                        FROM t_document WHERE tenant_id = ? AND id = ?
+                        SELECT d.id, d.kb_id, d.content, d.version,
+                               (d.deleted_at IS NOT NULL) AS deleted, kb.org_id
+                        FROM t_document d
+                        JOIN t_knowledge_base kb ON kb.id = d.kb_id
+                        WHERE d.tenant_id = ? AND d.id = ?
                         """,
                 (rs, rowNum) -> new DocumentRow(
                         rs.getLong("id"), rs.getLong("kb_id"), rs.getString("content"),
-                        rs.getInt("version"), rs.getBoolean("deleted")),
+                        rs.getInt("version"), rs.getBoolean("deleted"),
+                        rs.getObject("org_id", Long.class)),
                 tenantId, docId);
         if (rows.isEmpty() || rows.get(0).deleted()) {
             throw new DocumentNotFoundException("文档不存在或已删除：docId=" + docId);
@@ -62,11 +67,12 @@ public class DocumentIngestStore {
      * 新版本就绪后旧版本才失效）→ 文档置 INDEXED。
      */
     @Transactional
-    public void indexDocument(long tenantId, long docId, int version, long kbId, List<String> chunkTexts) {
+    public void indexDocument(long tenantId, long docId, int version, long kbId, Long orgId,
+                              List<String> chunkTexts) {
         vectorStore.deleteByVersion(docId, version);
         jdbcTemplate.update("DELETE FROM t_chunk WHERE doc_id = ? AND version = ?", docId, version);
 
-        String metaJson = metaJson(docId, version, kbId);
+        String metaJson = metaJson(docId, version, kbId, tenantId, orgId);
         List<VectorRecord> records = new ArrayList<>(chunkTexts.size());
         for (int seq = 0; seq < chunkTexts.size(); seq++) {
             String content = chunkTexts.get(seq);
@@ -110,9 +116,20 @@ public class DocumentIngestStore {
                 """, tenantId, docId);
     }
 
-    private String metaJson(long docId, int version, long kbId) {
-        return objectMapper.writeValueAsString(
-                Map.of("docId", docId, "version", version, "kbId", kbId));
+    /**
+     * 可见集 meta（ADR-007 下推地基）：{@code tenantId} 必含；{@code orgId} 非空才带——
+     * 字段全集与 t_chunk.meta 一致（filter 在 t_vector 侧可就地过滤）。
+     */
+    private String metaJson(long docId, int version, long kbId, long tenantId, Long orgId) {
+        Map<String, Object> meta = new LinkedHashMap<>();
+        meta.put("tenantId", tenantId);
+        meta.put("kbId", kbId);
+        meta.put("docId", docId);
+        meta.put("version", version);
+        if (orgId != null) {
+            meta.put("orgId", orgId);
+        }
+        return objectMapper.writeValueAsString(meta);
     }
 
     /** P4a 计量：每次嵌入调用一条明细——与切片写入同事务，随索引原子的成 / 败。 */
@@ -120,10 +137,11 @@ public class DocumentIngestStore {
         int latencyMs = (int) ((System.nanoTime() - embedStartNanos) / 1_000_000);
         outboxWriter.append(tenantId, docId, MeteringEventTypes.CALL_RECORDED,
                 objectMapper.writeValueAsString(
-                        new CallMeteringPayload("embedding", "deterministic-demo", latencyMs, 0, 0)));
+                        new CallMeteringPayload("embedding", "deterministic-demo", null, null, latencyMs, 0, 0)));
     }
 
-    /** 待摄入文档读取模型。 */
-    public record DocumentRow(long id, long kbId, String content, int version, boolean deleted) {
+    /** 待摄入文档读取模型（含 kb.org_id，供 meta 可见集装配）。 */
+    public record DocumentRow(long id, long kbId, String content, int version, boolean deleted,
+                              Long orgId) {
     }
 }

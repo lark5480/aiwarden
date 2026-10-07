@@ -3,11 +3,15 @@
 > **多租户 AI 数据与用量治理层**（形态：**数据面治理组件**）
 > 把大模型的**不确定性**（删不干净、越权、重复副作用、用量失控、长任务中断）关进 Java 的**确定性**里。
 
-[![Status](https://img.shields.io/badge/status-M0%20地基进行中-orange)]()
+[![Status](https://img.shields.io/badge/status-M1%20完成-orange)]()
 [![License](https://img.shields.io/badge/License-MIT-lightgrey)]()
 
-> ⚠️ **当前仓库状态：M0 地基阶段（2026-10）。**
-> `docs/`（调研 + PRD + 决策记录）为已完成交付物；**Java 多模块骨架已起步**——Spring Boot 4.1.1 + LangChain4j 双坐标（核心件 `1.21.0` / SB4 starter `1.21.0-beta31`）共存、ArchUnit 架构守护（3 条规则）、CI workflow、租户上下文四类边界透传（HTTP / 虚拟线程 / Kafka 消费 / 定时任务）、**Flyway 迁移（V1 租户表，Testcontainers 实测）与 Docker Compose 一键起（PostgreSQL+pgvector / Redis / Kafka / MinIO，四容器实测 healthy）**均已就位（本地 `mvn -B -ntp verify` 通过）。**业务代码尚未开始编写**，实现进度以 [`docs/PRD.md`](docs/PRD.md) §8 里程碑为准。
+> ⚠️ **当前仓库状态：M1 完成（2026-10，本地 `mvn -B -ntp verify` 50 测试全绿；GitHub CI 待首次推送验证）。**
+> M0 地基 + M1（P1 删除即失效 / P4a 计量）已落地：**Outbox → Kafka → 幂等消费 → 对账**全链路带容器测试——
+> ① 删除收敛后检索 **0 命中**（5 轮样本全 ≤ 5s，单次断言口径，P95 形式化度量待压测）；
+> ② **16 线程并发投递只产生一份向量**（向量数 == 切片数）；③ 对账报告接口可查 + 不一致清单有指标（`aiwarden_vector_orphan_total`）；
+> ④ 删除事件丢失的不一致可被对账发现并可显式修复（复扫归零）；⑤ 计量事件落库可查。
+> 下一步 M2（P2 检索层隔离 + P3 副作用幂等 + P4a 配额），进度以 [`docs/PRD.md`](docs/PRD.md) §8 里程碑为准。
 
 ---
 

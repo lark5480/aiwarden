@@ -10,6 +10,8 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
 
+import java.util.List;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
@@ -48,5 +50,20 @@ class FlywayMigrationContainersTest {
                 "SELECT count(*) FROM flyway_schema_history WHERE success", Integer.class);
 
         assertThat(applied).isGreaterThanOrEqualTo(1);
+    }
+
+    @Test
+    void migrationCreatesM1TablesAndEnablesVectorExtension() {
+        List<String> tables = jdbcTemplate.queryForList(
+                "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'",
+                String.class);
+
+        assertThat(tables).contains(
+                "t_tenant", "t_knowledge_base", "t_document", "t_chunk", "t_vector",
+                "t_outbox_event", "t_ingest_ledger", "t_reconcile_report", "t_llm_call_log");
+
+        Integer vectorExtension = jdbcTemplate.queryForObject(
+                "SELECT count(*) FROM pg_extension WHERE extname = 'vector'", Integer.class);
+        assertThat(vectorExtension).isEqualTo(1);
     }
 }

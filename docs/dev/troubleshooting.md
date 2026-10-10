@@ -201,7 +201,44 @@ IntelliJ 在 Run/Debug Configuration 的 **Active profiles** 填 `local`）。
 
 ---
 
-## 8. IDE 启动通道（`.vscode/launch.json`）与它的 `JAVA_HOME` 前置
+## 8. 对账「修复录屏」怎么演：可回滚的不一致演示（实测跑通）
+
+**为什么需要配方**：一致性页平时显示「不一致清单为空」——那是对的，但对账的价值要**看见一次真修复**才立得住。
+自己硬试会发现第一道坎：**正常删除路径几秒内就收敛了**（实测 17:34:05 调
+`DELETE /api/v1/documents/4`，17:34:32 扫描时残留已为 0），根本没有可演示的窗口。
+所以残留必须**从数据面注入**（模拟「删除事件丢失 / 消费停摆窗口」），而不是等它自然发生。
+
+**对账看的是库，不是事件**（`ConsistencyReconciler.runOnce()`）：三处判据都在同一轮 SQL 里——
+① `t_chunk JOIN t_document WHERE d.deleted_at IS NOT NULL`（残留切片，按 `doc_id` 聚合计数）；
+② 同条件下的 `t_vector` 计数（孤儿向量）；③ `t_ingest_ledger` 里 `PROCESSING` 且超 5 分钟（超时未收敛）。
+`mismatchCount = 残留文档数 + 超时未收敛数`。
+
+**实测走通的步骤**（2026-10-10，脚本阶段化，每步都可单独核对）：
+
+| 步 | 动作 | 实测结果 |
+|---|---|---|
+| 1 | 给 doc3 复制一份残留产物，并把 `deleted_at` 置为 now()（**不写 outbox** → 不会被消费者清掉） | `chunks=2 vecs=2`，`status=DELETED` |
+| 2 | `POST /api/v1/admin/consistency/scan` | `mismatchCount=1`，清单 `[{"doc_id":3,"tenant_id":1,"stale_chunks":2}]`，`orphanVectors=2` |
+| 3 | `POST /api/v1/admin/consistency/repair` | `{"repairedDocuments":1}` |
+| 4 | 再 `POST /scan` | `mismatchCount=0`、`orphanVectors=0`；Prometheus `aiwarden_vector_orphan 0.0` |
+| 5 | 复原（补回切片与向量、文档与账本置回 `INDEXED`） | doc3 恢复可检索（C 端 `kbId=2` 能查到并抽取作答） |
+
+**修复段实测踩到的坑（务必按此写复原）**：`repair` 会**真删掉**向量与切片（这是它的职责），
+所以复原必须重新插入向量；而**插入时的嵌入不能指向某个具体 `doc_id`**——
+实测按「从 doc2 取嵌入」写，结果 doc2 的向量早被删了，`embedding` 为 NULL、违反非空约束，
+留下**「文档状态 INDEXED 但没有向量」的假复原状态**（查询接口都正常，只是检索查不到）。
+正确写法是从**当前库里任意现存向量**取（`CROSS JOIN (SELECT embedding FROM t_vector LIMIT 1)`），
+并且复原后**必须核对向量真的回来了**（只看 `status` 会漏判）。
+
+> **口说无凭的判据**：这一步的验收不是「接口返回 200」，而是
+> **做一次真实检索**（C 端 `kbId=2` 问「配送政策是什么」）拿到该文档的命中——机制确实被触发才算数。
+
+**脚本不入库**：演示脚本含本机数据库写操作，按 `.gitignore` 的 `demo-*.ps1` 排除；
+配方与实测证据就是本节正文（本机脚本可随时按下表重写，不需要进仓库）。
+
+---
+
+## 9. IDE 启动通道（`.vscode/launch.json`）与它的 `JAVA_HOME` 前置
 
 **`.vscode/` 只放行 `launch.json` 一个文件**（`.gitignore` 里 `.vscode/*` + `!.vscode/launch.json`），
 进库的是**通用**配置：`javaExec` 写的是 **`${env:JAVA_HOME}/bin/java.exe`**，不含任何机器专属路径。
@@ -219,7 +256,7 @@ IntelliJ 在 Run/Debug Configuration 的 **Active profiles** 填 `local`）。
 
 ---
 
-## 9. 跑测试：Testcontainers 的 Docker 探测偶发失败
+## 10. 跑测试：Testcontainers 的 Docker 探测偶发失败
 
 `mvn -B -ntp verify` 需要 Docker（起真实 PostgreSQL / Kafka）。本机偶发
 `Could not find a valid Docker environment`，报错常见 `MalformedChunkCodingException (Bad chunk header)`，

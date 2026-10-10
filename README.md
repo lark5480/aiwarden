@@ -47,7 +47,7 @@ AIWarden 是一个**面向 Java 技术栈的 AI 应用数据面治理组件**。
 | P5 长任务续跑 | `kill -9` 后续跑成功率 / 副作用重复数 | 待验证（M4） |
 | 评测 | 样本通过率 / P95 延迟 / 单次成本 | **24/24 全绿**、风险样本拦截 **7/7**、重复建单 **0**、P95 **52ms**、单次成本 **0.000509 元**（Mock 替身 + 真实治理管道；**演示单价口径**。逐轮抖动与 nearest-rank 口径见 [`docs/STATUS.md`](docs/STATUS.md) §2） |
 | 治理税 | 逐环节开销四项 / 每请求治理总开销 / 吞吐拐点 / P99 | 四项已实测（P95）：可见集计算 **3.2ms** / filter 下推 **7.1ms** / 计量事件 **0.9ms** / 配额检查 **4.3ms**；**审计留痕开销**与总开销 / 吞吐拐点 / P99 待 M4 压测 |
-| 测试 | `mvn -B -ntp verify` 全绿测试数 | **127**（0 失败 0 跳过；前端 `aiwarden-web` 走独立 `pnpm build` 口径，不计入——见 [`docs/STATUS.md`](docs/STATUS.md) §2） |
+| 测试 | `mvn -B -ntp verify` 全绿测试数 | **126**（0 失败 0 跳过；前端 `aiwarden-web` 走独立 `pnpm build` 口径，不计入——见 [`docs/STATUS.md`](docs/STATUS.md) §2） |
 
 ---
 

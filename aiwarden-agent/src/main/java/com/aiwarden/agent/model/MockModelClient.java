@@ -10,6 +10,7 @@ import org.springframework.stereotype.Component;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -49,11 +50,16 @@ public class MockModelClient implements ModelClient {
     private static final Pattern ASSIGNEE = Pattern.compile("给\\s*([A-Za-z0-9\\-]{2,32})");
 
     /**
-     * 检索片段行（由编排组装：{@code [n] doc=<id> chunk=<id>}）。
-     * 计数用于产出 {@code [n]} 内联引用标记；两处同仓库同版本，约定与 {@link #NO_CONTEXT_MARKER} 同级。
+     * 检索片段块（由编排组装：{@code [n] doc=<id> chunk=<id>\n<片段正文>}）。
+     * **group(1)** 是片段序号，**group(2)** 是片段正文——正文用于抽取式作答；
+     * 两处同仓库同版本，约定与 {@link #NO_CONTEXT_MARKER} 同级。
      */
-    private static final Pattern SNIPPET_LINE =
-            Pattern.compile("^\\[(\\d+)] doc=\\d+ chunk=\\d+", Pattern.MULTILINE);
+    private static final Pattern SNIPPET_BLOCK = Pattern.compile(
+            "^\\[(\\d+)] doc=\\d+ chunk=\\d+\\R(.*?)(?=\\R\\[\\d+] doc=|\\z)",
+            Pattern.MULTILINE | Pattern.DOTALL);
+
+    /** 单条片段进正文的截断上限（字符；演示口径，避免长片段撑爆回答）。 */
+    private static final int MAX_SNIPPET_CHARS = 200;
 
     @Override
     public String model() {
@@ -111,35 +117,48 @@ public class MockModelClient implements ModelClient {
     }
 
     /**
-     * 正常回答：**按 Prompt 里注入的检索片段编号产出 {@code [n]} 内联引用标记**（FR-APP-02）。
+     * 正常回答：**抽取式作答**——把命中的片段原文按序引入正文，并在每条前放 {@code [n]} 引用标记（FR-APP-02）。
      *
-     * <p>为什么替身也要产出标记：编排的 system prompt 明确要求「引用以 [序号] 标注」，
-     * 而 C 端会把 {@code [n]} 渲染成可点击的引用上标（`MarkdownBlock` 的 citationCount 机制）。
-     * 替身若只回一句概述，这条链路虽已实现却永远不被激活——**演示时「引用溯源」只剩侧栏、正文里点不到**，
-     * 与 FR-APP-02「每条引用可点开并定位」不符。故替身按**与片段一一对应**的编号产出标记，
-     * 与真实模型遵循同一句 system prompt 的行为保持一致（真实模型接入后自然替换）。
+     * <p><b>为什么是抽取式而不是「概述 + 详见引用列表」</b>：编排的 system prompt 要求模型基于片段作答、
+     * 引用以 {@code [序号]} 标注；替身若只回一句「已找到 N 条依据」，C 端就出现「结局：正常回答，
+     * 但回答里没有答案」的观感——检索、引用、计量全真，唯独正文是空的，演示时观众第一个问题就是「答案呢」。
+     * 抽取式让正文**直接等同于命中片段的原文**，因此仍是**确定性**的（片段 → 回答一一对应、可复现），
+     * 且**零幻觉**（只搬检索到的原文，不生成任何新内容）——这是替身身份下唯一不越界又能自证的写法。
+     *
+     * <p><b>标记约定不破</b>：{@code [n]} 与片段序号一一对应；检索 0 命中时由
+     * {@link #decide} 走无命中分支，**不产出任何标记**（否则上标会指向不存在的条目）。
      */
     private static String answerWithCitationMarkers(ModelChatRequest request, String message) {
-        int hits = countSnippets(request.systemPrompt());
-        StringBuilder markers = new StringBuilder();
-        for (int i = 1; i <= hits; i++) {
-            markers.append('[').append(i).append(']');
+        List<String> snippets = parseSnippets(request.systemPrompt());
+        StringBuilder answer = new StringBuilder("根据知识库检索结果，回答如下（")
+                .append(snippets.size()).append(" 条依据）：");
+        for (int i = 0; i < snippets.size(); i++) {
+            answer.append('\n')
+                    .append('[').append(i + 1).append("] ")
+                    .append(truncate(snippets.get(i), MAX_SNIPPET_CHARS));
         }
-        return "根据知识库检索结果回答：关于「" + truncate(message, 40) + "」，已找到 "
-                + hits + " 条相关依据" + markers + "，详见本次回答的引用列表。";
+        return answer.toString();
     }
 
-    /** 数 Prompt 里注入的检索片段条数（编排组装格式：{@code [n] doc=… chunk=…}）。 */
-    private static int countSnippets(String systemPrompt) {
+    /**
+     * 解析 Prompt 里注入的检索片段（编排组装格式：{@code [n] doc=… chunk=…\n<正文>}）。
+     *
+     * <p>返回**按标记出现顺序**排列的片段正文；`n` 的取值不参与排序（用位置决定序号），
+     * 与 {@link #answerWithCitationMarkers} 里「标记 = 位置 + 1」的写出一致。
+     */
+    private static List<String> parseSnippets(String systemPrompt) {
         if (systemPrompt == null) {
-            return 0;
+            return List.of();
         }
-        Matcher matcher = SNIPPET_LINE.matcher(systemPrompt);
-        int count = 0;
+        List<String> snippets = new ArrayList<>();
+        Matcher matcher = SNIPPET_BLOCK.matcher(systemPrompt);
         while (matcher.find()) {
-            count++;
+            String content = matcher.group(2).strip();
+            if (!content.isEmpty()) {
+                snippets.add(content);
+            }
         }
-        return count;
+        return snippets;
     }
 
     private ModelChatResult result(ModelChatRequest request, String text, List<ModelToolCall> toolCalls) {

@@ -35,3 +35,6 @@ docs/INTERNAL/
 # ---- Temp ----
 *.tmp
 *.bak
+
+# ---- 本机演示脚本（含本机数据库操作，不入库；配方与实测证据见 docs/dev/troubleshooting.md §8）----
+demo-*.ps1

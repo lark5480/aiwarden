@@ -54,27 +54,34 @@
 | P4a 用量可归因 + 配额强一致 | 四维归因覆盖率 / 配额检查（预扣减 / 幂等）正确性 | 工具链路四维齐备（租户/会话/步骤/工具）；预扣减幂等 / 并发不超卖 / 超限 429 / 对账差异 0。**注**：模型调用维度的归因依赖 M4 的 OTel span，当前仅工具链路 |
 | P4b 预算降级 | 两档降级触发正确性 | **已砍**（2026-10 裁决 19）；地基已就位，重启属新范围 |
 | P5 长任务续跑 | `kill -9` 后续跑成功率 / 副作用重复数 | 待验证（M4） |
-| 评测 | 24 条样本通过率 / P95 延迟 / 单次成本 | **24/24 全绿**、风险样本拦截 **7/7**、重复建单 **0**、P95 **52ms**、单次成本 **0.000509 元**（Mock 替身 + 真实治理管道；**演示单价口径**，非真实价目表；**P95 逐轮抖动**——首轮 44ms / 本轮 52ms，nearest-rank、样本量 24） |
+| 评测 | 24 条样本通过率 / P95 延迟 / 单次成本 | **24/24 全绿**、风险样本拦截 **7/7**、重复建单 **0**、P95 **23ms**、单次成本 **0.000869 元**（Mock 替身 + 真实治理管道；**演示单价口径**，非真实价目表；**P95 逐轮抖动**——历史轮次 44 / 52 / 58ms，nearest-rank、样本量 24） |
 | 治理税 | 逐环节开销四项 / 每请求总开销 / 吞吐拐点 / P99 | 四项已实测（P95）：可见集计算 **3.2ms** / filter 下推 **7.1ms** / 计量事件 **0.9ms** / 配额检查 **4.3ms**；**审计留痕开销与总开销 / 吞吐拐点 / P99 归 M4** |
 
 ### 复现口径（原始证据）
 
-- 本地 `mvn -B -ntp -o verify`：**127 测试全绿**（0 失败 0 跳过）；
+- 本地 `mvn -B -ntp -o verify`：**126 测试全绿**（0 失败 0 跳过）；
   **单次运行口径**（`clean` 后跑一次），机器 `i7-7700（4 物理核 / 8 逻辑核）+ 32GB`。
   其中 M2 收尾为 102 → M3 切片①② 净增 10（112）→ 收官后补测净增 15（**127**：
-  `AdminIdentityBoundaryContainersTest` 13 + `MockModelClientTest` 3，扣除随口径调整的 1）。
+  `AdminIdentityBoundaryContainersTest` 13 + `MockModelClientTest` 3，扣除随口径调整的 1）
+  → **Mock 改抽取式作答后净减 1（126**：`MockModelClientTest` 的「默认回答」与「内联标记」两个用例
+  合并为一个「抽取式作答含片段原文与标记」用例，断言更严但方法数少 1）。
   - **复现记录**：2026-10-10 本轮文档重划后在**同一工作树**上重跑 `mvn -B -ntp verify`（不带 `-o`，
     需要 Testcontainers 起真实 PostgreSQL / Kafka），**exit 0 / BUILD SUCCESS / 4:13 min**，
     reactor 三个有测试的模块各报 `Tests run` 汇总：`aiwarden-common` 16 + `aiwarden-knowledge` 8 +
     `aiwarden-start` 103 = **127**，0 失败 0 跳过——与本行口径一致，数字未变。
-  - **数数口径（踩过一次，务必按此核）**：`127` 是 **Maven 的模块汇总行**（`[INFO] Tests run: 127`）；
+  - **Mock 改抽取式作答后的复现**（同日稍后）：同样 `mvn -B -ntp verify`，**exit 0 / BUILD SUCCESS**，
+    三模块汇总 `16 + 8 + 126` = **150**（其中 start 由 103 降至 **102**，即上面那条净减 1），0 失败 0 跳过。
+  - **数数口径（踩过一次，务必按此核）**：测试数只能取 **Maven 的模块汇总行**（`[INFO] Tests run: N`）；
     **不要**把每个测试类的逐行输出或 `target/surefire-reports/TEST-*.xml` 直接相加——聚合测试类会 fork
-    多个 JVM，同名类会出现两行（如 `ArchitectureTest` 5 + 3、`ChatSseContainersTest` 10 里 1 个 `@Disabled`），
-    相加得 151 是**重复计数**，不是 127 漏数。（本轮的 151/148 就是这个坑，核了一遍才确认 127 无误。）
-- **评测门禁的原始输出**（`ChatEvalGateContainersTest` 单类复跑，2026-10-10）：
-  `total=24 passed=24 denyBlocked=7/7 duplicateTickets=0 p95=52ms avgCost=0.000509 元`
+    多个 JVM，同名类会出现两行（如 `ArchitectureTest` 分两次输出、`ChatSseContainersTest` 含 1 个 `@Disabled`），
+    相加会**重复计数**（本轮实测相加得 151，而真值 127；一度据此误判文档有错，核了三遍才确认文档无误）。
+- **评测门禁的原始输出**（`ChatEvalGateContainersTest` 单类复跑，2026-10-10，**Mock 改抽取式作答之后**）：
+  `total=24 passed=24 denyBlocked=7/7 duplicateTickets=0 p95=23ms avgCost=0.000869`
   ——**逐字照抄，不再用散文复述一遍**；口径与抖动说明见上面结论表的「评测」行。
-- **前端独立口径**：`aiwarden-web` 是独立 pnpm 工程，**不进 `mvn verify`、不计入上面的 127**；
+  **数字为何比上一轮变**：抽取式作答让回答正文变长（每条命中片段都被引入正文），
+  completion tokens 随之增加 → 单次成本上升；P95 反而下降是**本轮样本的抖动**（nearest-rank、24 条），
+  不构成「改动让系统变快」的结论。
+- **前端独立口径**：`aiwarden-web` 是独立 pnpm 工程，**不进 `mvn verify`、不计入上面的 126**；
   其验证是 `pnpm build`（含 `vue-tsc --noEmit` 类型检查）通过 + `pnpm dev` 启动无编译错误，
   并已用真实后端做端到端联调（经 Vite 代理 5173→8080 打通 `/api`、`/actuator/prometheus` 与 SSE 流）。
 - **启动命令口径**：`mvn -B -ntp -DskipTests install`（一次；改了兄弟模块后重跑）
@@ -85,7 +92,7 @@
   因为**测试全绿不等于应用能启动**（本轮实测：装配模块的 test scope 依赖把运行期 Redis 客户端挤掉，
   112 个测试全绿而 `java -jar` 直接失败）。机制、判据与同类「装配面/运行面脱钩」坑见 [`AGENTS.md`](../AGENTS.md) §4。
 - 本机 Testcontainers 偶发 npipe 抖动的复现命令见 [`AGENTS.md`](../AGENTS.md) §4（环境类处置另见
-  [`docs/dev/troubleshooting.md`](dev/troubleshooting.md) 第 9 条）；CI（Linux）不受影响。
+  [`docs/dev/troubleshooting.md`](dev/troubleshooting.md) 第 10 条）；CI（Linux）不受影响。
 - GitHub Actions 已在 push(main) / PR 上触发；**CI 结果以流水线为准**——本开发环境无法直连 github.com
   （`web_fetch` 解析到非公网 IP 被拒），仓库内不复制 CI 结论。
 - **治理税四项与评测门禁的具体数值**：见上面「结论表」，以及评测门禁的原始输出行（上面第 2 条）——

@@ -117,18 +117,44 @@ AIWarden 是一个**面向 Java 技术栈的 AI 应用数据面治理组件**。
 # 1) 基础设施（PostgreSQL+pgvector / Redis / Kafka / MinIO）
 docker compose up -d
 
-# 2) 后端（port 8080）——首次启动 Flyway 自动迁移；租户需先建一行（接口不提供开户）
-mvn -pl aiwarden-start -am spring-boot:run
+# 2) 建库并首次插入一个租户（Flyway 随应用启动自动迁移；本仓库不提供开户接口）
+#    首次启动后执行（租户 id 会成为后续请求头 X-Aiwarden-Tenant-Id 的值）：
+docker exec aiwarden-postgres psql -U aiwarden -d aiwarden \
+  -c "INSERT INTO t_tenant (name) VALUES ('demo-tenant') ON CONFLICT (name) DO NOTHING;"
 
-# 3) 前端（port 5173；/api 与 /actuator 经 Vite 代理到 8080）
+# 3) 把各模块装进本地仓库（只需在首次、或改了兄弟模块后执行一次）
+mvn -B -ntp -DskipTests install
+
+# 4) 启动后端（port 8080）——`spring-boot:run` 会现场编译 aiwarden-start，改代码不必重新 install
+mvn -B -ntp -pl aiwarden-start spring-boot:run
+
+# 5) 前端（port 5173；/api 与 /actuator 经 Vite 代理到 8080）
 cd aiwarden-web && pnpm install && pnpm dev
 ```
 
+> ### ⚠️ 为什么不能写成 `mvn -pl aiwarden-start -am spring-boot:run`（**本项目实测踩坑**）
+> 从仓库根这样跑必定失败，两种错法各有原因：
+> - **带 `-am`**：`-am` 会把兄弟模块与**根聚合工程**一并放进 reactor，而 reactor 里**每个模块都会执行该 goal**——
+>   根 pom 没有 main class，于是报 `Unable to find a suitable main class`（报错项目名是 `aiwarden`，不是 `aiwarden-start`）。
+> - **不带 `-am`**：兄弟模块的 `0.1.0-SNAPSHOT` 不在本地仓库 → `Could not resolve dependencies`。
+>
+> 另外**在子模块目录里跑 `-am` 也没用**：Maven 只有「从根跑的聚合构建」才有完整 reactor，
+> 在 `aiwarden-start/` 目录下执行只会看到它自己。
+> **推论：多模块工程的 `spring-boot:run` 是「先 install，再单模块 run」两步，不能一步到位。**
+>
+> **等效替代（不需要 install）**：`mvn -B -ntp -pl aiwarden-start -am -DskipTests package`
+> 然后 `java -jar aiwarden-start/target/aiwarden-start-0.1.0-SNAPSHOT.jar`（改代码后需重新 package）。
+>
 > **身份头**：后端所有接口要求 `X-Aiwarden-Tenant-Id` / `X-Aiwarden-User-Id`（缺失即 400，**不回落默认租户**），
 > org 头可选。前端在页头「身份」抽屉里配置（存 `localStorage`）。细节见 [`aiwarden-web/README.md`](aiwarden-web/README.md)。
 >
 > **跑测试**：`mvn -B -ntp verify` 需要 Docker（Testcontainers 起真实 PostgreSQL / Kafka）。
 > 本机若遇 `Could not find a valid Docker environment`，用 [`AGENTS.md`](AGENTS.md) §4 记录的 npipe 绕行命令。
+>
+> **B 端「评测报告」页在本地开发库里初始是 404**（`{"detail":"暂无评测报告…"}`）——这是**预期行为不是故障**：
+> `t_eval_report` 由评测门禁测试在 **Testcontainers 的临时数据库**里写入，测试结束容器即销毁，
+> 因此本地开发库永远是空的。要看真实数据只有两条路：跑 `mvn verify` 读测试输出里的 `EVAL-SUMMARY`，
+> 或自行把结论 INSERT 进本地库（表结构见 `V9__eval_report.sql`）。
 
 ---
 

@@ -97,7 +97,11 @@ function rowClassName({ row }: EvalTableRowClassArgs): string {
       </template>
       <div class="aw-mono">{{ error.message }}</div>
       <div v-if="error.status === 404" class="aw-muted">
-        该提示来自后端 NotFoundException；有了报告后本页会显示结论表与逐样本明细。
+        该提示来自后端 NotFoundException。<strong>本地开发库里这是预期状态</strong>：评测结论由评测门禁测试写进
+        <span class="aw-mono">Testcontainers</span> 的临时数据库，测试结束后容器销毁，<span class="aw-mono">t_eval_report</span>
+        在本地库始终为空。要看真实数据：跑 <span class="aw-mono">mvn verify</span> 并读测试输出里的
+        <span class="aw-mono">EVAL-SUMMARY</span> 行，或把结论自行 INSERT 进本地库（表结构见
+        <span class="aw-mono">V9__eval_report.sql</span>）。有了报告后本页会显示结论表与逐样本明细。
       </div>
     </el-alert>
 

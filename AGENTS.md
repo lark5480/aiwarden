@@ -62,9 +62,9 @@
 
 ## 4. 已知的坑与约定（随代码生长）
 
-**本节现有十四条，都是实测得来、且不翻代码发现不了的。**
+**本节现有十六条，都是实测得来、且不翻代码发现不了的。**
 
-> **先记一条可迁移的判断规则**：下面十四条里有**八条**共享同一个失效形态——**不报错、只是静默不生效**：
+> **先记一条可迁移的判断规则**：下面十六条里有**八条**共享同一个失效形态——**不报错、只是静默不生效**：
 > - **名字写错**：`-betaNN` 版本后缀、Jackson 属性名少一个连字符、`flyway-core` 与 `spring-boot-starter-flyway` 的区别、
 >   Micrometer 导出时剥掉 Gauge 的 `_total` 后缀；
 > - **依赖被挤掉**：同名依赖在装配模块以更近的 test scope 重复声明，运行期依赖静默消失；
@@ -144,6 +144,27 @@
   不再等于「应用能启动」。判据：凡改依赖（尤其 scope）后，必须做一次
   `mvn -pl aiwarden-start -am package -DskipTests` + `java -jar` 的启动冒烟；
   `dependency:tree` 也要看**最终装配模块**（`-pl aiwarden-start`），或直接核对 jar 的 `BOOT-INF/lib`。**
+- **多模块工程的 `spring-boot:run` 必须「先 install，再单模块 run」两步，不能一步到位（2026-10-10 实测）**：
+  根 pom 的 `spring-boot-maven-plugin` 只在 `aiwarden-start` 里有 `<goal>repackage</goal>`，
+  但 `spring-boot:run` 是**命令行 goal**——reactor 里**每个模块**都会执行它，于是三种写法各有死法：
+  ① `mvn -pl aiwarden-start -am spring-boot:run`（从根）→ `-am` 把根聚合工程与兄弟模块一并入 reactor，
+  根 pom 无 main class → `Unable to find a suitable main class`（**报错里是项目 `aiwarden`，不是 `aiwarden-start`**，
+  极易误读成「start 模块坏了吗」）；
+  ② `mvn -pl aiwarden-start spring-boot:run`（不带 `-am`）→ 兄弟模块 `0.1.0-SNAPSHOT` 不在本地仓库 →
+  `Could not resolve dependencies`；
+  ③ **在 `aiwarden-start/` 目录里跑 `-am` 也无效**——Maven 只有「从根跑的聚合构建」才有完整 reactor，
+  在子模块目录执行只看到它自己，`-am` 无兄弟可加。
+  **可用写法**（本项目实测通过，app 正常 `Started AiwardenApplication`）：
+  `mvn -B -ntp -DskipTests install`（一次，改了兄弟模块后重跑）→ `mvn -B -ntp -pl aiwarden-start spring-boot:run`
+  （`run` 会现场编译该模块，改 start 自身代码不必重 install）；
+  或完全绕开 plugin：`mvn -pl aiwarden-start -am -DskipTests package` + `java -jar aiwarden-start/target/*.jar`。
+  **另注**：本机 `mvn install` **不能加 `-o`**——`maven-install-plugin` 自身的依赖未缓存，离线会
+  `PluginResolutionException`（`verify` 可以离线，`install` 不行）。
+- **评测页在本地开发库必为 404，不是故障（2026-10-10 实测）**：`t_eval_report` 由评测门禁测试写入
+  **Testcontainers 的临时数据库**，测试结束容器销毁——本地 `docker compose` 起的那套库里永远是空的，
+  `GET /api/v1/admin/eval/report` 必然返回 404 + `{"detail":"暂无评测报告…"}`。
+  **判据：看该接口 404 时先查 `t_eval_report` 行数，别去怀疑路由或 controller**（路由存在性可用
+  「不带身份头应返回 400」来证明——400 说明请求已到我们的 controller）。
 
 ---
 

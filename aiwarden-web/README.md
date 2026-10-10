@@ -24,14 +24,25 @@ pnpm preview      # 预览 dist/
 前端自身不需要数据库，但接口来自后端，**必须先起后端**：
 
 ```bash
-# 1) 基础设施（PostgreSQL + pgvector / Redis / Kafka / MinIO / 可观测性组件）
+# 1) 基础设施（PostgreSQL + pgvector / Redis / Kafka / MinIO）
 docker compose up -d
 
-# 2) Spring Boot 应用（aiwarden-start，缺省端口 8080）
-mvn -pl aiwarden-start -am spring-boot:run
+# 2) 首次：把各模块装进本地仓库（改了兄弟模块后需重跑）
+mvn -B -ntp -DskipTests install
+
+# 3) Spring Boot 应用（aiwarden-start，缺省端口 8080）
+mvn -B -ntp -pl aiwarden-start spring-boot:run
 ```
 
+> ⚠️ **不要写成 `mvn -pl aiwarden-start -am spring-boot:run`**：`-am` 会把根聚合工程也放进 reactor，
+> 而 reactor 里每个模块都会执行该 goal → 根 pom 无 main class → 报 `Unable to find a suitable main class`；
+> 若去掉 `-am` 又会因兄弟模块不在本地仓库报 `Could not resolve dependencies`。
+> 多模块工程的 `spring-boot:run` 是「先 install，再单模块 run」两步。理由与替代方案见根 [`README.md`](../README.md)「本地怎么跑起来」。
+
 后端就绪判断：`GET http://localhost:8080/actuator/health`。
+
+> **评测报告页初始为空是预期的**：`t_eval_report` 由评测门禁测试写进 Testcontainers 的临时库，
+> 本地开发库没有数据，接口会返回 404 + `{"detail":"暂无评测报告…"}`，本页会把该原文显示出来。
 
 ### 接口与代理
 

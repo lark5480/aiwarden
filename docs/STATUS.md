@@ -42,6 +42,11 @@
 - **前端独立口径**：`aiwarden-web` 是独立 pnpm 工程，**不进 `mvn verify`、不计入上面的 112**；
   其验证是 `pnpm build`（含 `vue-tsc --noEmit` 类型检查）通过 + `pnpm dev` 启动无编译错误，
   并已用真实后端做端到端联调（经 Vite 代理 5173→8080 打通 `/api`、`/actuator/prometheus` 与 SSE 流）。
+- **启动命令口径（多模块，实测）**：`mvn -B -ntp -DskipTests install`（一次；改了兄弟模块后重跑）
+  → `mvn -B -ntp -pl aiwarden-start spring-boot:run`。**不能写成 `-pl aiwarden-start -am spring-boot:run`**：
+  reactor 里每个模块都会执行该 goal，根 pom 无 main class 即报 `Unable to find a suitable main class`；
+  去掉 `-am` 又因兄弟模块不在本地仓库报 `Could not resolve dependencies`。完整三种死法与替代方案见
+  [`AGENTS.md`](../AGENTS.md) §4 与 [`README.md`](../README.md)「本地怎么跑起来」。
 - **启动冒烟（本轮新增的必做验证）**：`mvn -pl aiwarden-start -am package -DskipTests` + `java -jar` 能启动——
   因为**测试全绿不等于应用能启动**（本轮实测：装配模块的 test scope 依赖把运行期 Redis 客户端挤掉，
   112 个测试全绿而 `java -jar` 直接失败）。判据与完整坑见 [`AGENTS.md`](../AGENTS.md) §4。

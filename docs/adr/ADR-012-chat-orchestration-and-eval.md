@@ -116,3 +116,60 @@ M1/M2 均为确定性数据面（摄入 / 检索 / 工具 / 配额），全项�
 **实测修正（如实记录）**：首轮 6 条样本红——`expectedDocs` 在「查询≠文档文本」时失败。根因：确定性伪嵌入（SHA-256 播种随机向量）**不保留语义相似度**（同文本距离 0，异文本近似正交），「语义相关必命中」类断言实为哈希抛硬币——**属 B1 检索质量域，本就不该进治理门禁**。修订：删除该类断言，只保留「同文本精确命中」（N05）——**门禁只断言可确定判定的数据面**。
 
 **遗留**：切片③（Vue C 端）/ ④（B 端三页 + 评测报告读取 API）/ ⑤（PRD / README / STATUS 收尾回填）待做。
+
+**切片④ 半项已落地（评测报告读取 API）**：`EvalReportController` `GET /api/v1/admin/eval/report`
+（只读 `t_eval_report`，无数据抛 404 由前端显示原文）；容器测试内 `assertReportApiReadable` 断言该 API 可读
+且与报告一致——**B 端评测报告页的数据源在切片②就已顺带交付**，切片④ 剩余的是纯前端。
+
+## 修订（2026-10，切片③④联调：端到端实测与三个真实缺陷）
+
+**切片③④（Vue 3 前后端）已落地**：`aiwarden-web/`（独立 pnpm 工程，不经 Maven 构建、不进 `mvn verify`）——
+`/chat` C 端四要素（流式 Markdown + 引用侧栏 + 步骤时间线 + 本次成本 + 人工确认卡片）、
+`/admin/consistency|usage|eval` 三页；SSE 走 `fetch` + `ReadableStream` 手工解析（`EventSource` 不能发 POST）。
+
+### 端到端实测（真实 HTTP + 真实基础设施，非容器测试内直调）
+
+| 验证项 | 实测结果 |
+|---|---|
+| SSE 帧契约 | 真实帧序 `step*`(visibility/retrieval/prompt/model/metering) → `token*` → `cost` → `outcome` → `done`，与决策 6 逐条一致 |
+| 引用溯源 | 同文本精确命中：`citation.snippet` 为原文、`score=1.0`；非同文本 `score=0.0078`（哈希伪嵌入，印证 B1 边界） |
+| human_handoff（FR-APP-05） | `tool.status=PENDING_APPROVAL` + `invocationId` → `approve` 返回 `SUCCEEDED` 且 `t_ticket` 落 1 行；`outcome=human_handoff` 带原因 |
+| 断网重放（P3 主演示场景） | 同一请求重放：`tool.status=SUCCEEDED` + **`replayed=true`**，工单数**仍为 1** |
+| deny 路径 | 跨租户 kb：`visibility kbIds=0` → `outcome=deny` + 原因；**无 token / cost 事件**（证实决策 6 的假设）；审计落 `RETRIEVAL_DENIED` |
+| 身份边界 | 缺租户头 → 400 `{"detail":"租户上下文缺失：拒绝执行（不回落默认租户，FR-TEN-02）"}` |
+| 前端代理链路 | 经 Vite 代理（5173→8080）：`/api` 与 `/actuator/prometheus` 均通，SSE 完整流过 |
+| 前端构建 | `pnpm build`（含 `vue-tsc --noEmit`）通过；dev server 启动无编译错误 |
+
+### 三个真实缺陷（都是「不报错但不生效」，且现有 112 个测试一个都发现不了）
+
+1. **`aiwarden-start` 的 test scope `lettuce-core` 把运行期 Redis 客户端挤掉了**：Maven 就近声明压过
+   `spring-boot-starter-data-redis` 的 compile 传递依赖 → 测试 JVM 有 lettuce（全绿）、fat jar 没有 →
+   `StringRedisTemplate` 无候选 bean → **`java -jar` 启动即失败**。修正：删除该 test 依赖。
+   **推论已入 [`AGENTS.md`](../../AGENTS.md) §4：`mvn verify` 全绿 ≠ 应用能启动，改依赖后必须做 `java -jar` 启动冒烟。**
+2. **Micrometer 导出时剥掉 Gauge 名尾部 `_total`**：注册名 `aiwarden_vector_orphan_total` →
+   导出名 `aiwarden_vector_orphan`；前端按注册名抓取 → 曲线**永远采不到点**。修正：解析器两种形态都认。
+3. **`aiwarden.agent.tools.require-approval` 缺省为空**——即默认配置下 C 端人工确认卡片永不出现
+   （机制有容器测试覆盖，但演示开关未打开）。**本次未改缺省值**：默认开启人工确认会让「建单」这一主演示动作
+   多一步人工停顿，而容器测试已覆盖该路径；**演示时需显式打开**：
+   `-Daiwarden.agent.tools.require-approval=create_ticket`（本次 human_handoff 实测即用此参数）。
+
+4. **B 端管理接口只校验租户、不校验主体（口径不一致，本轮未改）**：实测 `GET /api/v1/admin/audit` 与
+   `/api/v1/admin/usage` **只带 `X-Aiwarden-Tenant-Id`（缺 `X-Aiwarden-User-Id`）也返回 200**——
+   而 `/api/v1/chat` 与检索入口会以 `MissingPrincipalContextException` 拒绝。原因是这些 Controller 只调
+   `TenantContext.requireTenantIdAsLong()`，而 `PrincipalContext` 在 `TenantContextFilter` 里是**可选**建立的。
+   **M3 的身份头本就是「认证层输出的模拟」（`PrincipalContext` 注释已声明），且租户级行隔离已生效，
+   故本轮不改**——但「同一套身份头，有的入口必填、有的可选」是**口径不一致**，真实鉴权接入时（B 端管理面
+   尤其需要主体与角色）必须统一。**如实记录，不留「看着像漏洞」的沉默。**
+
+### 本轮修订的测试口径
+`mvn -B -ntp -o verify` **112 测试全绿**；评测门禁单类复跑 `total=24 passed=24 denyBlocked=7/7
+duplicateTickets=0 p95=52ms avgCost=0.000509`（演示单价；P95 逐轮抖动：首轮 44ms / 本轮 52ms）。
+`aiwarden-web/` 不在 Maven 生命周期内，其验证口径是 `pnpm build` + dev server 冒烟（已写入该目录 README）。
+
+### 本机环境已知限制（与代码无关，如实记录）
+
+`docker compose up -d` 起 Kafka 后，**host 侧 `localhost:9092` 发布端口转发不通**
+（容器内 `netstat` 正常 LISTEN、`docker port` 有映射、`docker compose ps` 报 healthy；重启容器无效）——
+后果是 outbox 停在 PENDING，**摄入与计量消费不动**，`/api/v1/admin/usage` 返回空数组。
+M1/M2 的 Kafka 验证全部在容器测试内完成（容器间网络正常），不受此影响；
+真实长链路演示需先解决本机端口转发（换 Docker Desktop 网络模式或直接在容器网络内验证）。

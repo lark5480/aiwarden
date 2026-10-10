@@ -62,10 +62,12 @@
 
 ## 4. 已知的坑与约定（随代码生长）
 
-**本节现有十二条，都是实测得来、且不翻代码发现不了的。**
+**本节现有十四条，都是实测得来、且不翻代码发现不了的。**
 
-> **先记一条可迁移的判断规则**：下面十二条里有**六条**共享同一个失效形态——**不报错、只是静默不生效**：
-> - **名字写错**：`-betaNN` 版本后缀、Jackson 属性名少一个连字符、`flyway-core` 与 `spring-boot-starter-flyway` 的区别；
+> **先记一条可迁移的判断规则**：下面十四条里有**八条**共享同一个失效形态——**不报错、只是静默不生效**：
+> - **名字写错**：`-betaNN` 版本后缀、Jackson 属性名少一个连字符、`flyway-core` 与 `spring-boot-starter-flyway` 的区别、
+>   Micrometer 导出时剥掉 Gauge 的 `_total` 后缀；
+> - **依赖被挤掉**：同名依赖在装配模块以更近的 test scope 重复声明，运行期依赖静默消失；
 > - **装配歧义**：`CommonErrorHandler` 候选不唯一（工厂干脆谁都不用，自定义重试与 DLT 一起失效）；
 > - **语义设计**：幂等仲裁键混用「重复投递」与「合法状态流转」；
 > - **精度被吞**：JSON 小数默认落成 `Double`，高精度输入得到同一指纹（静默重放首次结果）；
@@ -125,6 +127,23 @@
   `java.lang.Error: Unresolved compilation problem` + `Failed to load ApplicationContext`（实测一次 24 个用例同时红，看起来像系统性崩溃）。`mvn -B -ntp -o clean test-compile` 后只剩 **1 个真实错误**。
   **判据：只要改的是别人也依赖的类型，就先 `clean`。** 另外 `-q` 会把编译错误藏起来，"无输出"不等于"编译通过"——要看退出码。
 - **MCP SDK 的 handler 执行线程与 Servlet 请求线程不同（切片④实测）**：ThreadLocal 的租户/主体上下文在 handler 里**不可用**（实测：调用被拒——「租户上下文缺失」）。身份必须经 transport 层显式携带：`contextExtractor(HttpServletRequest)` 把身份头写进 `McpTransportContext`，handler 里用 `exchange.transportContext()` 取出并 `TenantContext.callWithTenant` + `PrincipalContext.set/clear` 恢复——ADR-003 的显式 capture/apply 在第三方 SDK 线程边界上再次适用。
+- **Micrometer 导出时会剥掉 Gauge 名尾部的 `_total`（切片③④联调实测）**：代码里注册的是
+  `aiwarden_vector_orphan_total`（`ConsistencyReconciler` 的 `Gauge.builder`），而 `/actuator/prometheus`
+  实际导出的是 **`aiwarden_vector_orphan`**——`_total` 是 counter 的命名约定，Micrometer 统一剥离。
+  PRD / README / ADR 引用**注册名**（作为指标身份是对的），但**任何按名字抓取该指标的代码必须同时认两种形态**，
+  否则表现是「面板永远采不到点、不报错」——与 Jackson 属性名、`flyway-core` 同属「名字写错即静默失效」家族。
+  同类：`aiwarden_ingest_stuck_total` → 导出 `aiwarden_ingest_stuck`。
+  **判据：按指标名做字符串匹配前，先 `curl /actuator/prometheus | grep aiwarden_` 看真实导出名，不要照抄注册名。**
+- **同名依赖以不同 scope 在「装配模块」重复声明，会静默把运行期依赖降级掉（切片③④联调实测，本轮最隐蔽的一条）**：
+  `aiwarden-governance` 经 `spring-boot-starter-data-redis` 带来 compile scope 的 `lettuce-core`，而
+  `aiwarden-start` 又**直接**声明了 `lettuce-core` + `<scope>test</scope>`（M1 对照实验残留）。
+  Maven 的就近声明压过传递依赖 → **测试 JVM 拿得到 lettuce（`mvn verify` 112 个测试全绿），
+  打出的 fat jar 却没有 Redis 客户端** → 自动配置静默不装配 → `StringRedisTemplate` 无候选 bean →
+  `java -jar` 启动即失败，**而没有任何一个测试能发现它**。
+  **推论：测试分层（根 pom 的 surefire 全局属性）让「装配面」与「运行面」脱钩后，`mvn verify` 全绿
+  不再等于「应用能启动」。判据：凡改依赖（尤其 scope）后，必须做一次
+  `mvn -pl aiwarden-start -am package -DskipTests` + `java -jar` 的启动冒烟；
+  `dependency:tree` 也要看**最终装配模块**（`-pl aiwarden-start`），或直接核对 jar 的 `BOOT-INF/lib`。**
 
 ---
 

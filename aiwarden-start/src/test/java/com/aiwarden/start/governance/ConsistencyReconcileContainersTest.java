@@ -1,5 +1,7 @@
 package com.aiwarden.start.governance;
 
+import com.aiwarden.common.principal.PrincipalContext;
+import com.aiwarden.common.tenant.TenantContext;
 import com.aiwarden.contract.governance.ConsistencyRepairResponse;
 import com.aiwarden.contract.governance.ConsistencyReportResponse;
 import com.aiwarden.governance.reconcile.ConsistencyReconciler;
@@ -36,6 +38,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
         properties = "spring.flyway.enabled=true")
 class ConsistencyReconcileContainersTest {
+
+    /** 身份头取值（与 {@link #seedInconsistentData()} 写入的 tenant_id 一致）。 */
+    private static final String TENANT_ID = "301";
+    private static final String USER_ID = "1";
 
     @Container
     @ServiceConnection
@@ -131,8 +137,16 @@ class ConsistencyReconcileContainersTest {
         return docId;
     }
 
+    /**
+     * 带身份头发请求。
+     *
+     * <p>2026-10-10 起 B 端管理端点统一要求「租户 + 主体」齐备（见 {@code AdminAccess}）——
+     * 本测试原先裸调 {@code /consistency/*}，新纪律下会 400，故补上头（这也是把口径固化进测试的意义）。
+     */
     private HttpResponse<String> send(String method, String path) throws Exception {
         HttpRequest request = HttpRequest.newBuilder(URI.create(baseUrl + path))
+                .header(TenantContext.TENANT_ID_HEADER, TENANT_ID)
+                .header(PrincipalContext.USER_ID_HEADER, USER_ID)
                 .method(method, HttpRequest.BodyPublishers.noBody())
                 .build();
         return httpClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));

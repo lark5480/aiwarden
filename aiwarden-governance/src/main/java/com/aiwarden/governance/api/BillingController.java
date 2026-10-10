@@ -1,6 +1,5 @@
 package com.aiwarden.governance.api;
 
-import com.aiwarden.common.tenant.TenantContext;
 import com.aiwarden.contract.governance.BillingReconcileResponse;
 import com.aiwarden.contract.governance.BudgetResponse;
 import com.aiwarden.contract.governance.BudgetSetRequest;
@@ -42,7 +41,7 @@ public class BillingController {
 
     @GetMapping("/billing/reconcile")
     public BillingReconcileResponse reconcile(@RequestParam(required = false) String period) {
-        long tenantId = TenantContext.requireTenantIdAsLong();
+        long tenantId = AdminAccess.requireIdentity();
         BillingReconciler.BillingReport report = billingReconciler.reconcile(tenantId, period);
         return new BillingReconcileResponse(report.period(), report.budgetLimit(), report.redisUsage(),
                 report.ledgerTokens(), report.mismatch(), report.mismatchRate(), report.reportId());
@@ -79,7 +78,7 @@ public class BillingController {
      * 接的就是入参 tenantId，一旦入参可伪造，下游的条件就是错的。
      */
     private static void requireOwnTenant(long pathTenantId) {
-        long callerTenantId = TenantContext.requireTenantIdAsLong();
+        long callerTenantId = AdminAccess.requireIdentity();
         if (pathTenantId != callerTenantId) {
             throw new SecurityException(
                     "路径租户与调用方租户不一致：拒绝访问（租户边界不可由路径参数改写）");

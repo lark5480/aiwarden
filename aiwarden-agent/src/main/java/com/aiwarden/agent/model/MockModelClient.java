@@ -48,6 +48,13 @@ public class MockModelClient implements ModelClient {
     private static final Pattern ORDER_REF = Pattern.compile("[A-Za-z]{2,10}-\\d{1,10}");
     private static final Pattern ASSIGNEE = Pattern.compile("给\\s*([A-Za-z0-9\\-]{2,32})");
 
+    /**
+     * 检索片段行（由编排组装：{@code [n] doc=<id> chunk=<id>}）。
+     * 计数用于产出 {@code [n]} 内联引用标记；两处同仓库同版本，约定与 {@link #NO_CONTEXT_MARKER} 同级。
+     */
+    private static final Pattern SNIPPET_LINE =
+            Pattern.compile("^\\[(\\d+)] doc=\\d+ chunk=\\d+", Pattern.MULTILINE);
+
     @Override
     public String model() {
         return MODEL;
@@ -100,8 +107,39 @@ public class MockModelClient implements ModelClient {
         if (request.systemPrompt() != null && request.systemPrompt().contains(NO_CONTEXT_MARKER)) {
             return result(request, "未在当前可见知识库中找到与问题相关的内容（检索命中 0 条）。", List.of());
         }
-        return result(request, "根据知识库检索结果回答：关于「" + truncate(message, 40)
-                + "」，已找到相关依据，详见本次回答的引用列表。", List.of());
+        return result(request, answerWithCitationMarkers(request, message), List.of());
+    }
+
+    /**
+     * 正常回答：**按 Prompt 里注入的检索片段编号产出 {@code [n]} 内联引用标记**（FR-APP-02）。
+     *
+     * <p>为什么替身也要产出标记：编排的 system prompt 明确要求「引用以 [序号] 标注」，
+     * 而 C 端会把 {@code [n]} 渲染成可点击的引用上标（`MarkdownBlock` 的 citationCount 机制）。
+     * 替身若只回一句概述，这条链路虽已实现却永远不被激活——**演示时「引用溯源」只剩侧栏、正文里点不到**，
+     * 与 FR-APP-02「每条引用可点开并定位」不符。故替身按**与片段一一对应**的编号产出标记，
+     * 与真实模型遵循同一句 system prompt 的行为保持一致（真实模型接入后自然替换）。
+     */
+    private static String answerWithCitationMarkers(ModelChatRequest request, String message) {
+        int hits = countSnippets(request.systemPrompt());
+        StringBuilder markers = new StringBuilder();
+        for (int i = 1; i <= hits; i++) {
+            markers.append('[').append(i).append(']');
+        }
+        return "根据知识库检索结果回答：关于「" + truncate(message, 40) + "」，已找到 "
+                + hits + " 条相关依据" + markers + "，详见本次回答的引用列表。";
+    }
+
+    /** 数 Prompt 里注入的检索片段条数（编排组装格式：{@code [n] doc=… chunk=…}）。 */
+    private static int countSnippets(String systemPrompt) {
+        if (systemPrompt == null) {
+            return 0;
+        }
+        Matcher matcher = SNIPPET_LINE.matcher(systemPrompt);
+        int count = 0;
+        while (matcher.find()) {
+            count++;
+        }
+        return count;
     }
 
     private ModelChatResult result(ModelChatRequest request, String text, List<ModelToolCall> toolCalls) {

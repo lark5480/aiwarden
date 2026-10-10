@@ -32,14 +32,15 @@
 
 ## 2. 可复现的验证口径
 
-- 本地 `mvn -B -ntp -o verify`：**112 测试全绿**（0 失败 0 跳过）；
+- 本地 `mvn -B -ntp -o verify`：**127 测试全绿**（0 失败 0 跳过）；
   **单次运行口径**（`clean` 后跑一次），机器 i7-7700 4 物理核 / 8 逻辑核 + 32GB。
-  其中 M3 切片①② 净增 10（`ChatSseContainersTest` 9 + `ChatEvalGateContainersTest` 1），M2 收尾为 102。
+  其中 M2 收尾为 102 → M3 切片①② 净增 10（112）→ 收官后补测净增 15（**127**：
+  `AdminIdentityBoundaryContainersTest` 13 + `MockModelClientTest` 3，扣除随口径调整的 1）。
 - **评测门禁结论**（`ChatEvalGateContainersTest` 单类复跑，2026-10-10）：
   `total=24 passed=24 denyBlocked=7/7 duplicateTickets=0 p95=52ms avgCost=0.000509 元`
   ——24 条样本 100% 通过、风险样本拦截 7/7、重复建单 0。**P95 为逐轮抖动值**
   （首轮 44ms，本轮 52ms，nearest-rank 口径，样本量 24）；成本为**演示单价口径**，非真实价目表。
-- **前端独立口径**：`aiwarden-web` 是独立 pnpm 工程，**不进 `mvn verify`、不计入上面的 112**；
+- **前端独立口径**：`aiwarden-web` 是独立 pnpm 工程，**不进 `mvn verify`、不计入上面的 127**；
   其验证是 `pnpm build`（含 `vue-tsc --noEmit` 类型检查）通过 + `pnpm dev` 启动无编译错误，
   并已用真实后端做端到端联调（经 Vite 代理 5173→8080 打通 `/api`、`/actuator/prometheus` 与 SSE 流）。
 - **启动命令口径（多模块，实测）**：`mvn -B -ntp -DskipTests install`（一次；改了兄弟模块后重跑）
@@ -67,14 +68,16 @@
 - **P4a 四维归因**：工具链路四维齐备；**模型调用维度依赖 M4 的 OTel span，当前未实现**。
 - **M3 模型侧**：无真实模型端点，问答链路走 **Mock 替身**（确定性剧本）；录制回放机制已就绪，
   **fixture 待真实端点补录**（不伪造数据）。单轮问答 + 会话标识，多轮上下文与 Checkpoint 归 M4。
-- **回答正文里没有 `[序号]` 内联引用标记**（2026-10-10 浏览器实测发现）：引用侧栏能列出 docId/chunkId/snippet/相似度
-  且与回答一一对应，但后端不会在回答文本里插入 `[1]` `[2]`——模型替身只输出一句概述，
-  而 Prompt 里既要求「引用以 [序号] 标注」、又没把「用序号标注」写进替身剧本。
-  属**真实模型接入时自然会消失的缺口**（真实模型会照 system prompt 标注），故未改替身剧本；
-  演示时以侧栏为准。若要现在就补：改 `MockModelClient` 的默认分支按命中序号拼装文本即可。
-- **B 端管理接口只校验租户、不校验主体**（`/api/v1/admin/audit`、`/usage` 实测只带租户头也返回 200；
-  而 `/api/v1/chat` 与检索入口会拒绝缺主体）——M3 身份头是「认证层输出的模拟」，租户级行隔离已生效，
-  **口径统一留待真实鉴权接入**。详见 [ADR-012 修订段](adr/ADR-012-chat-orchestration-and-eval.md)缺陷 4。
+- **B 端管理接口身份口径已统一（2026-10-10 收口，裁决 22）**：`/api/v1/admin/**` 全部端点统一要求
+  **租户 + 主体双必填**（缺失即 400、不回落默认值），经 `AdminAccess.requireIdentity()` 单点收口。
+  收口前的实测不一致：`/audit`、`/usage`、`/eval/report`、`/billing/*` 只校验租户（缺主体也 200），
+  而 **`/consistency/*` 连租户都没校验**（裸扫全表即返回报告）。口径已写进
+  `AdminIdentityBoundaryContainersTest`（逐端点断言缺租户 400 / 缺主体 400 / 齐备非 4xx 非 5xx，
+  **端点清单单一事实源**，新增接口只补一处即被覆盖）。**仍不做租户维度过滤**——这些是平台级接口
+  （`t_reconcile_report` / `t_eval_report` 无租户维度），真实鉴权接入时应升级为角色校验。
+- **内联引用标记已补齐（2026-10-10，裁决 22）**：`MockModelClient` 现按检索片段编号产出 `[1][2]…`，
+  与 C 端 `MarkdownBlock` 既有的 `[n]` → 可点击引用上标机制（`citationCount` / `pick-citation`）接通——
+  此前前端实现了该链路、后端从不产出标记，**功能存在但不可达**（FR-APP-02 的「正文可点引用」演示中实际缺失）。
 - **前端不在 Maven 生命周期内**：`aiwarden-web/` 是独立 pnpm 工程（**不进 `mvn verify`、不计入测试数**），
   验证口径是 `pnpm build`（含 `vue-tsc --noEmit`）+ dev server 冒烟——**CI 绿不等于前端可构建**。
 - **本机 Kafka 端口问题已解决（2026-10-10）**：Windows 把 TCP 9092 划进了保留端口区间

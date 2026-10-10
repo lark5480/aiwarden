@@ -62,12 +62,13 @@
 
 ## 4. 已知的坑与约定（随代码生长）
 
-**本节现有二十条，都是实测得来、且不翻代码发现不了的。**
+**本节现有二十一条，都是实测得来、且不翻代码发现不了的。**
 
-> **先记一条可迁移的判断规则**：下面二十条里有**九条**共享同一个失效形态——**不报错、只是静默不生效**：
+> **先记一条可迁移的判断规则**：下面二十一条里有**十条**共享同一个失效形态——**不报错、只是静默不生效**：
 > - **名字写错**：`-betaNN` 版本后缀、Jackson 属性名少一个连字符、`flyway-core` 与 `spring-boot-starter-flyway` 的区别、
 >   Micrometer 导出时剥掉 Gauge 的 `_total` 后缀；
 > - **依赖被挤掉**：同名依赖在装配模块以更近的 test scope 重复声明，运行期依赖静默消失；
+> - **跑的不是你以为的代码**：`spring-boot:run` 只编译自身模块，兄弟模块走本地仓库旧 jar；
 > - **绕过了代理**：往响应式数组 push 原始对象后再改那个局部变量，数据变了但不重渲染；
 > - **装配歧义**：`CommonErrorHandler` 候选不唯一（工厂干脆谁都不用，自定义重试与 DLT 一起失效）；
 > - **语义设计**：幂等仲裁键混用「重复投递」与「合法状态流转」；
@@ -163,6 +164,16 @@
   或完全绕开 plugin：`mvn -pl aiwarden-start -am -DskipTests package` + `java -jar aiwarden-start/target/*.jar`。
   **另注**：本机 `mvn install` **不能加 `-o`**——`maven-install-plugin` 自身的依赖未缓存，离线会
   `PluginResolutionException`（`verify` 可以离线，`install` 不行）。
+- **改兄弟模块后必须重跑 `install`：`spring-boot:run -pl aiwarden-start` 读的是本地仓库里的 SNAPSHOT jar（2026-10-10 实测，本轮自己踩了）**：
+  `spring-boot:run` 只现场编译**它自己那个模块**（`aiwarden-start`），其余模块走**本地仓库的已安装 jar**。
+  于是「改了 `aiwarden-agent` 的代码 → 只跑 `spring-boot:run`」会**跑到旧逻辑**，而 `target/classes` 里的
+  class 明明是新的——实测症状极具迷惑性：HTTP 响应返回的是**几小时前的旧文案**，
+  而 `MockModelClient.class` 里新方法、新字符串常量**全都在**（因为那是 `mvn verify` 编出来的），
+  查源码、查 class、查全仓文本都找不到「旧文本从哪来」。
+  **判据**：`target/classes/**` 新 ≠ 生效；要对齐就比 **本地仓库 jar 的时间戳**
+  （`...\repository\com\aiwarden\aiwarden-agent\0.1.0-SNAPSHOT\*.jar`）。
+  **纪律：改了任一兄弟模块 → 先 `mvn -B -ntp -DskipTests install`，再 `spring-boot:run`。**
+  同理，`java -jar` 跑的 fat jar 也只在 `package` 时生成，改了依赖模块同样要重新 `package`。
 - **评测页在本地开发库必为 404，不是故障（2026-10-10 实测）**：`t_eval_report` 由评测门禁测试写入
   **Testcontainers 的临时数据库**，测试结束容器销毁——本地 `docker compose` 起的那套库里永远是空的，
   `GET /api/v1/admin/eval/report` 必然返回 404 + `{"detail":"暂无评测报告…"}`。

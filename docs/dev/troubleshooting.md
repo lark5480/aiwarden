@@ -152,7 +152,25 @@ IntelliJ 在 Run/Debug Configuration 的 **Active profiles** 填 `local`）。
 
 ---
 
-## 6. 跑测试：Testcontainers 的 Docker 探测偶发失败
+## 6. IDE 启动通道（`.vscode/launch.json`）与它的 `JAVA_HOME` 前置
+
+**`.vscode/` 只放行 `launch.json` 一个文件**（`.gitignore` 里 `.vscode/*` + `!.vscode/launch.json`），
+进库的是**通用**配置：`javaExec` 写的是 **`${env:JAVA_HOME}/bin/java.exe`**，不含任何机器专属路径。
+因此**前置条件是环境变量 `JAVA_HOME` 指向 JDK 21**——没设或指向别的版本时，IDE 启动会报找不到 java。
+
+- 本机实测：`JAVA_HOME = E:\Software\openjdk-21.0.8`（`java -version` = 21.0.8），与 `which java` 同一份；
+- **兜底写法**：不想依赖 `JAVA_HOME` 时，把 `javaExec` 改成本机绝对路径即可，但**别把它提交**——
+  个人路径、以及任何机器专属设置，放**不入库的** `.vscode/settings.json`（该文件被 `.vscode/*` 覆盖），
+  或干脆只改本地而不 add；
+- 配置里两个条目的差别只有一个 `--spring.profiles.active=local`（理由见上面第 2 条）；
+  支持 WSL / 容器的场景也可以改用 `type: "java"` + `request: "attach"`，本仓库不预置该条目。
+
+**为什么不让这个文件承载排障正文**：它一度把「9092 为什么走 29092」的完整判据抄了近 10 行，
+与本文件第 2 条构成两份正文（违反 [`AGENTS.md`](../../AGENTS.md) §2）。现在只留一句结论 + 指针。
+
+---
+
+## 7. 跑测试：Testcontainers 的 Docker 探测偶发失败
 
 `mvn -B -ntp verify` 需要 Docker（起真实 PostgreSQL / Kafka）。本机偶发
 `Could not find a valid Docker environment`，报错常见 `MalformedChunkCodingException (Bad chunk header)`，

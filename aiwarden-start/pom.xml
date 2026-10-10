@@ -134,12 +134,11 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-kafka</artifactId>
         </dependency>
-        <!-- 对照实验依赖：Redis Streams 逃生梯验证（ADR-004）；Redis 正式引入在 M2 配额/限流时再定 -->
-        <dependency>
-            <groupId>io.lettuce</groupId>
-            <artifactId>lettuce-core</artifactId>
-            <scope>test</scope>
-        </dependency>
+        <!-- 注意：Redis 客户端（lettuce-core）不在此显式声明——它由 aiwarden-governance 的
+             spring-boot-starter-data-redis 以 compile scope 带入。M1 对照实验期这里曾以 <scope>test</scope>
+             直接声明过 lettuce-core，而 Maven 的就近声明会压过传递依赖：测试全绿、打出的 jar 却没有
+             Redis 客户端 → 自动配置静默不装配 → StringRedisTemplate 无候选、应用启动即失败
+             （打包实测，2026-10-10）。移除后 test scope 依旧拿得到（compile 传递依赖对测试可见）。 -->
     </dependencies>
 
     <build>

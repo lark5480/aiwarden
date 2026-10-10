@@ -7,7 +7,8 @@ import java.util.Map;
  *
  * @param invocationId 调用记录 id
  * @param tool         工具名
- * @param status       PROCESSING / SUCCEEDED / FAILED
+ * @param status       PROCESSING / SUCCEEDED / FAILED / PENDING_APPROVAL / REJECTED
+ *                     （后两者由二态审批产生：挂起待人工确认，或确认后被驳回的终态——FR-TOOL-03）
  * @param result       结果（SUCCEEDED 时；重放返回首次结果）
  * @param error        首见失败原因（FAILED 时；重放返回首次失败记录）
  * @param idemKey      幂等键（业务键 + 会话 + 步骤指纹）

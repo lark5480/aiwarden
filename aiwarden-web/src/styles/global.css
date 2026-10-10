@@ -1,0 +1,111 @@
+:root {
+  --aw-border: #e4e7ed;
+  --aw-muted: #909399;
+  --aw-bg-soft: #f7f8fa;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB',
+    'Microsoft YaHei', sans-serif;
+  color: #303133;
+}
+
+.aw-page {
+  padding: 16px 20px 32px;
+}
+
+.aw-page__title {
+  margin: 0 0 4px;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.aw-page__subtitle {
+  margin: 0 0 16px;
+  color: var(--aw-muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.aw-section {
+  margin-top: 16px;
+}
+
+.aw-section__title {
+  margin: 0 0 10px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.aw-muted {
+  color: var(--aw-muted);
+}
+
+.aw-mono {
+  font-family: 'JetBrains Mono', Consolas, 'Courier New', monospace;
+}
+
+/* Markdown 渲染结果 */
+.aw-markdown {
+  line-height: 1.75;
+  word-break: break-word;
+}
+
+.aw-markdown p {
+  margin: 0 0 10px;
+}
+
+.aw-markdown pre {
+  background: #f5f6f8;
+  padding: 10px 12px;
+  border-radius: 6px;
+  overflow-x: auto;
+}
+
+.aw-markdown code {
+  background: #f5f6f8;
+  padding: 1px 4px;
+  border-radius: 4px;
+  font-size: 13px;
+}
+
+.aw-markdown pre code {
+  background: transparent;
+  padding: 0;
+}
+
+.aw-markdown table {
+  border-collapse: collapse;
+}
+
+.aw-markdown th,
+.aw-markdown td {
+  border: 1px solid var(--aw-border);
+  padding: 4px 8px;
+}
+
+.aw-markdown blockquote {
+  margin: 0 0 10px;
+  padding-left: 10px;
+  border-left: 3px solid var(--aw-border);
+  color: var(--aw-muted);
+}
+
+.aw-citation-ref {
+  color: #409eff;
+  cursor: pointer;
+  font-size: 12px;
+  vertical-align: super;
+  text-decoration: none;
+}

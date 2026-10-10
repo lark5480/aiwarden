@@ -1,0 +1,4 @@
+# pnpm v11 构建脚本白名单：esbuild 需要下载对应操作系统的二进制（Vite 依赖），vue-demi 需要 postinstall 选择 Vue 版本。
+allowBuilds:
+  esbuild: true
+  vue-demi: true

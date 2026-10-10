@@ -1,6 +1,5 @@
 package com.aiwarden.governance.api;
 
-import com.aiwarden.common.tenant.TenantContext;
 import com.aiwarden.contract.governance.UsageRecordResponse;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -33,7 +32,7 @@ public class UsageController {
                                            @RequestParam(required = false) String from,
                                            @RequestParam(required = false) String to,
                                            @RequestParam(defaultValue = "100") Integer limit) {
-        long tenantId = TenantContext.requireTenantIdAsLong();
+        long tenantId = AdminAccess.requireIdentity();
         int size = Math.clamp(limit, 1, 500);
 
         StringBuilder sql = new StringBuilder("""

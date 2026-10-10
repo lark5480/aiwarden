@@ -1,7 +1,6 @@
 package com.aiwarden.governance.api;
 
 import com.aiwarden.common.exception.NotFoundException;
-import com.aiwarden.common.tenant.TenantContext;
 import com.aiwarden.contract.governance.EvalReportResponse;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -35,7 +34,7 @@ public class EvalReportController {
 
     @GetMapping("/eval/report")
     public EvalReportResponse latest() {
-        TenantContext.requireTenantIdAsLong();
+        AdminAccess.requireIdentity();
         List<EvalReportRow> rows = jdbcTemplate.query("""
                 SELECT run_at, total, passed, deny_total, deny_blocked,
                        duplicate_tickets, p95_latency_ms, avg_cost, detail

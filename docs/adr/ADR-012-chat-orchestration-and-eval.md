@@ -150,7 +150,7 @@ M1/M2 均为确定性数据面（摄入 / 检索 / 工具 / 配额），全项�
 | 前端代理链路 | 经 Vite 代理（5173→8080）：`/api` 与 `/actuator/prometheus` 均通，SSE 完整流过 |
 | 前端构建 | `pnpm build`（含 `vue-tsc --noEmit`）通过；dev server 启动无编译错误 |
 
-### 三个真实缺陷（都是「不报错但不生效」，且现有 112 个测试一个都发现不了）
+### 真实缺陷（都是「不报错但不生效」，且当时的 112 个测试一个都发现不了）
 
 1. **`aiwarden-start` 的 test scope `lettuce-core` 把运行期 Redis 客户端挤掉了**：Maven 就近声明压过
    `spring-boot-starter-data-redis` 的 compile 传递依赖 → 测试 JVM 有 lettuce（全绿）、fat jar 没有 →
@@ -162,14 +162,28 @@ M1/M2 均为确定性数据面（摄入 / 检索 / 工具 / 配额），全项�
    （机制有容器测试覆盖，但演示开关未打开）。**本次未改缺省值**：默认开启人工确认会让「建单」这一主演示动作
    多一步人工停顿，而容器测试已覆盖该路径；**演示时需显式打开**：
    `-Daiwarden.agent.tools.require-approval=create_ticket`（本次 human_handoff 实测即用此参数）。
-
-4. **B 端管理接口只校验租户、不校验主体（口径不一致，本轮未改）**：实测 `GET /api/v1/admin/audit` 与
-   `/api/v1/admin/usage` **只带 `X-Aiwarden-Tenant-Id`（缺 `X-Aiwarden-User-Id`）也返回 200**——
-   而 `/api/v1/chat` 与检索入口会以 `MissingPrincipalContextException` 拒绝。原因是这些 Controller 只调
-   `TenantContext.requireTenantIdAsLong()`，而 `PrincipalContext` 在 `TenantContextFilter` 里是**可选**建立的。
-   **M3 的身份头本就是「认证层输出的模拟」（`PrincipalContext` 注释已声明），且租户级行隔离已生效，
-   故本轮不改**——但「同一套身份头，有的入口必填、有的可选」是**口径不一致**，真实鉴权接入时（B 端管理面
-   尤其需要主体与角色）必须统一。**如实记录，不留「看着像漏洞」的沉默。**
+   界面层闭环亦已验证：卡片「待处理」→ 点「批准执行」→ 卡片变 `SUCCEEDED`，
+   DB 侧 `t_tool_invocation` id=4 SUCCEEDED + 审计 `TOOL_APPROVED target=4`。
+4. **B 端管理接口身份口径不一致——已于收官后统一（裁决 22）**：原状为
+   `GET /api/v1/admin/audit`、`/usage` **只带租户头（缺 `X-Aiwarden-User-Id`）也返回 200**，
+   而 `/api/v1/chat` 与检索入口会以 `MissingPrincipalContextException` 拒绝；
+   更进一步，**`/admin/consistency/*` 连租户都没校验**（裸扫全表即返回报告，`ConsistencyReconcileContainersTest`
+   原先裸调即 200 正是此因）。根因是这些 Controller 只调 `TenantContext.requireTenantIdAsLong()`。
+   **收口**：新增 `AdminAccess.requireIdentity()`（租户 + 主体双必填，缺失即 400 由既有 handler 映射），
+   五个管理 Controller 全部改走它；`AdminIdentityBoundaryContainersTest` 逐端点固化该口径
+   （缺租户 400 / 缺主体 400 / 齐备非 4xx 非 5xx，**端点清单单一事实源**）。
+   **仍不做租户维度过滤**——`t_reconcile_report` 与 `t_eval_report` 是平台级数据（对账为全表扫描），
+   真实鉴权接入时应在此处升级为角色校验。
+5. **前端引用面板永远 0 条**（接口层完全看不见，见下节「浏览器实测」）：`messages.value.push(turn)` 后
+   继续改**原始对象**，绕过 Vue 代理拦截 → 数据变了但不重渲染。修正：push 后从数组取回代理。
+6. **「功能存在但不可达」：内联引用标记前端实现了、后端从不产出**——编排的 system prompt 一直要求
+   「引用以 [序号] 标注」，C 端 `MarkdownBlock` 也早已实现 `[n]` → 可点击引用上标
+   （`citationCount` + `pick-citation` 事件），但 `MockModelClient` 从不产出标记。
+   后果：FR-APP-02 的「正文里点引用跳转」在演示中**实际不可用**，而侧栏文案却写着「回答中的 [序号]
+   与上面条目一一对应」——**界面在替不存在的功能做承诺**。
+   这类缺陷比「没实现」更隐蔽：没有报错、没有 TODO，只有真去点一次才会发现。
+   **修正**：替身按检索片段编号产出 `[1][2]…`（与真实模型遵循同一句 system prompt 的行为对齐），
+   并用 3 个单测固化（含「0 命中时不得产出任何标记」——否则上标会指向不存在的条目）。
 
 ### 本轮修订的测试口径
 `mvn -B -ntp -o verify` **112 测试全绿**；评测门禁单类复跑 `total=24 passed=24 denyBlocked=7/7

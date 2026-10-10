@@ -1,6 +1,5 @@
 package com.aiwarden.governance.api;
 
-import com.aiwarden.common.tenant.TenantContext;
 import com.aiwarden.contract.governance.AuditLogResponse;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -30,7 +29,7 @@ public class AuditController {
     public List<AuditLogResponse> audit(@RequestParam(required = false) String action,
                                         @RequestParam(required = false) String actor,
                                         @RequestParam(defaultValue = "50") Integer limit) {
-        long tenantId = TenantContext.requireTenantIdAsLong();
+        long tenantId = AdminAccess.requireIdentity();
         int size = Math.clamp(limit, 1, 200);
 
         StringBuilder sql = new StringBuilder("""

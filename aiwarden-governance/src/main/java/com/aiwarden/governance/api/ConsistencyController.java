@@ -27,6 +27,7 @@ public class ConsistencyController {
 
     @GetMapping("/report")
     public ConsistencyReportResponse report() {
+        AdminAccess.requireIdentity();
         return reconciler.latestReport()
                 .map(row -> new ConsistencyReportResponse(row.id(), row.mismatchCount(),
                         row.detailsJson(), row.createdAt()))
@@ -36,12 +37,14 @@ public class ConsistencyController {
     /** 手动触发扫描并返回最新报告（同步执行，演示规模无压力）。 */
     @PostMapping("/scan")
     public ConsistencyReportResponse scan() {
+        AdminAccess.requireIdentity();
         reconciler.runOnce();
         return report();
     }
 
     @PostMapping("/repair")
     public ConsistencyRepairResponse repair() {
+        AdminAccess.requireIdentity();
         return new ConsistencyRepairResponse(reconciler.repair());
     }
 }

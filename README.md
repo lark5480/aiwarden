@@ -6,7 +6,7 @@
 [![Status](https://img.shields.io/badge/status-M3%20%E5%AE%8C%E6%88%90-brightgreen)]()
 [![License](https://img.shields.io/badge/License-MIT-lightgrey)]()
 
-> ⚠️ **当前仓库状态：M2 完成（MVP 达成）+ M3 完成**（2026-10，Java 侧本地 `mvn -B -ntp verify` **112 测试全绿**；前端 `aiwarden-web` 独立构建通过；GitHub Actions 已在推送 / PR 上触发，状态以流水线为准）。
+> ⚠️ **当前仓库状态：M2 完成（MVP 达成）+ M3 完成**（2026-10，Java 侧本地 `mvn -B -ntp verify` **127 测试全绿**；前端 `aiwarden-web` 独立构建通过；GitHub Actions 已在推送 / PR 上触发，状态以流水线为准）。
 > **M0+M1+M2 = MVP，P1 / P2 / P3 / P4a 四项承诺成立**（见下方结论表）——除 M1 已交付的删除即失效 / Outbox→对账 / 计量外，新增：
 > ① 可见集四级下推 + 越权样本门禁 **20/20（拦截率 100%）**；② 工具副作用治理（断网重放**工单数 == 1** + 补偿逆序 + 二态审批）；
 > ③ 配额强一致（Redis Lua 预扣减/幂等/对账，超限 429）；④ 审计检索 / 用量明细 / 账单对账接口；
@@ -222,7 +222,7 @@ cd aiwarden-web && pnpm install && pnpm dev
 | 知道**为什么选这个题、凭什么和竞品共存** | [`docs/research/04-选题论证与差异化声明.md`](docs/research/04-选题论证与差异化声明.md) |
 | 知道**有哪些竞品、哪些方向已经饱和** | [`docs/research/03-竞品调研与饱和度分析.md`](docs/research/03-竞品调研与饱和度分析.md) |
 | 知道**结论经不经得起质疑** | [`docs/research/05-独立验证与交叉质询报告.md`](docs/research/05-独立验证与交叉质询报告.md) |
-| 知道**争议是怎么拍板的** | [`docs/research/06-PRD修订裁决清单.md`](docs/research/06-PRD修订裁决清单.md)（**裁决 1–13** 为开工前；**裁决 14–18** 为 M2 交付期；**裁决 19–21** 为 M2 收官 / M3 开工与收官期） |
+| 知道**争议是怎么拍板的** | [`docs/research/06-PRD修订裁决清单.md`](docs/research/06-PRD修订裁决清单.md)（**裁决 1–13** 为开工前；**裁决 14–18** 为 M2 交付期；**裁决 19–22** 为 M2 收官 / M3 开工与收官期） |
 | 看清**调研序列的编号与关系** | [`docs/research/`](docs/research/README.md)（索引：01–06 各在回答什么问题） |
 
 > **公开范围**：本仓库为公开版。编号 01、02 的两份前期调研文档与原始调研报告（`research/inbox/`）属内部材料，未随仓库公开；正文中对它们的引用**保留文字叙述、不提供链接**，以免出现死链。

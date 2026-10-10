@@ -19,43 +19,77 @@
 |---|---|---|
 | M2（已完成） | ① | P2 检索层隔离（可见集四级下推 + 20 条越权样本门禁） |
 | M2（已完成） | ② | P3 工具副作用治理（幂等键 + 补偿 + 二态审批 + 故障注入用例） |
-| M2（已完成） | ③ | P4a 配额强一致（预扣减 / 幂等 / 对账 + 审计留痕） |
-| M2（已完成） | ④ | 治理税四项输出 + MCP 最小版 |
+| M2（已完成） | ③ | P4a 配额强一致（Redis Lua 预扣减 / 幂等 / 对账，超限 429 + 审计留痕不可变） |
+| M2（已完成） | ④ | 治理税四项输出 + **MCP 最小版**（2 个内置工具经 Streamable HTTP 暴露，复用 P3 管道）；审计检索 / 用量明细 / 账单对账读取接口 |
 | M3（已完成） | ① | 问答编排内核（`ModelClient` SPI + Mock 替身 + 录制回放双轨 + SSE 七类事件） |
 | M3（已完成） | ② | 评测门禁 24 条样本（引擎三件套 + 全栈驱动 + `t_eval_report` + 读取 API） |
 | M3（已完成） | ③④ | Vue 3 前后端 `aiwarden-web`（C 端四要素 + B 端三页；独立 pnpm 工程） |
-| M3（已完成） | ⑤ | 文档收尾回填（本文件 / PRD v2.2 / README / 06 裁决 21 / ADR-012 修订段） |
+| M3（已完成） | ⑤ | 文档收尾回填（本文件 / PRD / README / 06 裁决 21 / ADR-012 修订段） |
 
 **M0+M1+M2 = MVP，P1 / P2 / P3 / P4a 四项承诺成立**；**M3 两项硬交付（评测门禁 + 前后端）均已达成**
 （数据见 §2），并已用**真实 HTTP 端到端联调**验证：SSE 帧序、引用溯源、human_handoff → approve、
-断网重放 `replayed=true` 且工单数 == 1、跨租户 deny 与审计留痕。承诺结论表见 [`README.md`](../README.md) 第一屏。
+断网重放 `replayed=true` 且工单数 == 1、跨租户 deny 与审计留痕。
+**P4b 已砍（裁决 19）/ P5 归 M4**；里程碑定义见 [`docs/PRD.md`](PRD.md) §8（唯一权威源），
+承诺结论表见本文件 §2（[`README.md`](../README.md) 第一屏是它的对外投影）。
 
-## 2. 可复现的验证口径
+## 2. 可复现的验证口径（**实测数字的唯一落点**）
+
+> **本节是全仓库「已验证数字」的唯一正文**（测试数 / 评测门禁结论 / 治理税四项 / 机器规格 / 抖动说明）：
+> 数字**只在这里更新**，[`README.md`](../README.md) 第一屏结论表与 [`docs/PRD.md`](PRD.md) §12 都只是它的投影或口径定义。
+> 更新方向不可逆：**STATUS → README**，不要反向在 README 里改数字。口径见 [`AGENTS.md`](../AGENTS.md) §2。
+>
+> **机器规格的唯一写法**（对外材料引用时必须逐字一致，不要另造一种说法）：
+> **`i7-7700（4 物理核 / 8 逻辑核）+ 32GB`**——即 PRD 裁决 13 所说「8 核 32G 单机」的实测口径。
+
+### 结论表（真身）
+
+> 每行**该填什么数字、目标线是多少**由 [`docs/PRD.md`](PRD.md) §12 定义（验收口径）；本表填**实测结果**。
+> 诚实原则：没做的写「待验证」，不写漂亮的 99%。
+
+| 承诺 | 指标 | 结果 |
+|---|---|---|
+| P1 删除即失效 | 删除生效 **P95**（目标 ≤ 5s）/ 超窗残留进入不一致清单的条数 | 自动化用例 **5 轮全 ≤ 5s**（**当前为单次断言口径**，非分位数）；P95 分位数量化待 M4 压测；超窗残留由对账发现（M1 用例已证） |
+| P2 检索层隔离 | 越权样本拦截率（20 条） | **100%**（16 条检索类 + 4 条工具类，随 `mvn verify` 门禁） |
+| P3 副作用幂等 | 断网重放后工单数（期望 1） | **1**（重放复用首见结果；`t_ticket` 唯一约束兜底） |
+| P4a 用量可归因 + 配额强一致 | 四维归因覆盖率 / 配额检查（预扣减 / 幂等）正确性 | 工具链路四维齐备（租户/会话/步骤/工具）；预扣减幂等 / 并发不超卖 / 超限 429 / 对账差异 0。**注**：模型调用维度的归因依赖 M4 的 OTel span，当前仅工具链路 |
+| P4b 预算降级 | 两档降级触发正确性 | **已砍**（2026-10 裁决 19）；地基已就位，重启属新范围 |
+| P5 长任务续跑 | `kill -9` 后续跑成功率 / 副作用重复数 | 待验证（M4） |
+| 评测 | 24 条样本通过率 / P95 延迟 / 单次成本 | **24/24 全绿**、风险样本拦截 **7/7**、重复建单 **0**、P95 **52ms**、单次成本 **0.000509 元**（Mock 替身 + 真实治理管道；**演示单价口径**，非真实价目表；**P95 逐轮抖动**——首轮 44ms / 本轮 52ms，nearest-rank、样本量 24） |
+| 治理税 | 逐环节开销四项 / 每请求总开销 / 吞吐拐点 / P99 | 四项已实测（P95）：可见集计算 **3.2ms** / filter 下推 **7.1ms** / 计量事件 **0.9ms** / 配额检查 **4.3ms**；**审计留痕开销与总开销 / 吞吐拐点 / P99 归 M4** |
+
+### 复现口径（原始证据）
 
 - 本地 `mvn -B -ntp -o verify`：**127 测试全绿**（0 失败 0 跳过）；
-  **单次运行口径**（`clean` 后跑一次），机器 i7-7700 4 物理核 / 8 逻辑核 + 32GB。
+  **单次运行口径**（`clean` 后跑一次），机器 `i7-7700（4 物理核 / 8 逻辑核）+ 32GB`。
   其中 M2 收尾为 102 → M3 切片①② 净增 10（112）→ 收官后补测净增 15（**127**：
   `AdminIdentityBoundaryContainersTest` 13 + `MockModelClientTest` 3，扣除随口径调整的 1）。
-- **评测门禁结论**（`ChatEvalGateContainersTest` 单类复跑，2026-10-10）：
+  - **复现记录**：2026-10-10 本轮文档重划后在**同一工作树**上重跑 `mvn -B -ntp verify`（不带 `-o`，
+    需要 Testcontainers 起真实 PostgreSQL / Kafka），**exit 0 / BUILD SUCCESS / 4:13 min**，
+    reactor 三个有测试的模块各报 `Tests run` 汇总：`aiwarden-common` 16 + `aiwarden-knowledge` 8 +
+    `aiwarden-start` 103 = **127**，0 失败 0 跳过——与本行口径一致，数字未变。
+  - **数数口径（踩过一次，务必按此核）**：`127` 是 **Maven 的模块汇总行**（`[INFO] Tests run: 127`）；
+    **不要**把每个测试类的逐行输出或 `target/surefire-reports/TEST-*.xml` 直接相加——聚合测试类会 fork
+    多个 JVM，同名类会出现两行（如 `ArchitectureTest` 5 + 3、`ChatSseContainersTest` 10 里 1 个 `@Disabled`），
+    相加得 151 是**重复计数**，不是 127 漏数。（本轮的 151/148 就是这个坑，核了一遍才确认 127 无误。）
+- **评测门禁的原始输出**（`ChatEvalGateContainersTest` 单类复跑，2026-10-10）：
   `total=24 passed=24 denyBlocked=7/7 duplicateTickets=0 p95=52ms avgCost=0.000509 元`
-  ——24 条样本 100% 通过、风险样本拦截 7/7、重复建单 0。**P95 为逐轮抖动值**
-  （首轮 44ms，本轮 52ms，nearest-rank 口径，样本量 24）；成本为**演示单价口径**，非真实价目表。
+  ——**逐字照抄，不再用散文复述一遍**；口径与抖动说明见上面结论表的「评测」行。
 - **前端独立口径**：`aiwarden-web` 是独立 pnpm 工程，**不进 `mvn verify`、不计入上面的 127**；
   其验证是 `pnpm build`（含 `vue-tsc --noEmit` 类型检查）通过 + `pnpm dev` 启动无编译错误，
   并已用真实后端做端到端联调（经 Vite 代理 5173→8080 打通 `/api`、`/actuator/prometheus` 与 SSE 流）。
-- **启动命令口径（多模块，实测）**：`mvn -B -ntp -DskipTests install`（一次；改了兄弟模块后重跑）
-  → `mvn -B -ntp -pl aiwarden-start spring-boot:run`。**不能写成 `-pl aiwarden-start -am spring-boot:run`**：
-  reactor 里每个模块都会执行该 goal，根 pom 无 main class 即报 `Unable to find a suitable main class`；
-  去掉 `-am` 又因兄弟模块不在本地仓库报 `Could not resolve dependencies`。完整三种死法与替代方案见
-  [`AGENTS.md`](../AGENTS.md) §4 与 [`README.md`](../README.md)「本地怎么跑起来」。
+- **启动命令口径**：`mvn -B -ntp -DskipTests install`（一次；改了兄弟模块后重跑）
+  → `mvn -B -ntp -pl aiwarden-start spring-boot:run -Dspring-boot.run.profiles=local`（本机）。
+  **不能写成 `-pl aiwarden-start -am spring-boot:run`**。三种死法、IDE 启动、改兄弟模块为何必须重 `install`
+  ——唯一正文见 [`docs/dev/troubleshooting.md`](dev/troubleshooting.md) 第 4 条。
 - **启动冒烟（本轮新增的必做验证）**：`mvn -pl aiwarden-start -am package -DskipTests` + `java -jar` 能启动——
   因为**测试全绿不等于应用能启动**（本轮实测：装配模块的 test scope 依赖把运行期 Redis 客户端挤掉，
-  112 个测试全绿而 `java -jar` 直接失败）。判据与完整坑见 [`AGENTS.md`](../AGENTS.md) §4。
-- 本地 Testcontainers 偶发 npipe 抖动的复现命令见 [`AGENTS.md`](../AGENTS.md) §4；CI（Linux）不受影响。
+  112 个测试全绿而 `java -jar` 直接失败）。机制、判据与同类「装配面/运行面脱钩」坑见 [`AGENTS.md`](../AGENTS.md) §4。
+- 本机 Testcontainers 偶发 npipe 抖动的复现命令见 [`AGENTS.md`](../AGENTS.md) §4（环境类处置另见
+  [`docs/dev/troubleshooting.md`](dev/troubleshooting.md) 第 6 条）；CI（Linux）不受影响。
 - GitHub Actions 已在 push(main) / PR 上触发；**CI 结果以流水线为准**——本开发环境无法直连 github.com
   （`web_fetch` 解析到非公网 IP 被拒），仓库内不复制 CI 结论。
-- 治理税四项实测（P95）：可见集计算 **3.2ms** / filter 下推 **7.1ms** / 计量事件 **0.9ms** / 配额检查 **4.3ms**；
-  **审计留痕开销与总开销 / 吞吐拐点 / P99 归 M4**。
+- **治理税四项与评测门禁的具体数值**：见上面「结论表」，以及评测门禁的原始输出行（上面第 2 条）——
+  **同一数字不在本文件里写两遍**。
 
 ## 3. 已知边界（不在承诺范围，主动交代）
 
@@ -68,6 +102,12 @@
 - **P4a 四维归因**：工具链路四维齐备；**模型调用维度依赖 M4 的 OTel span，当前未实现**。
 - **M3 模型侧**：无真实模型端点，问答链路走 **Mock 替身**（确定性剧本）；录制回放机制已就绪，
   **fixture 待真实端点补录**（不伪造数据）。单轮问答 + 会话标识，多轮上下文与 Checkpoint 归 M4。
+- **人工确认卡片默认不出现（演示需显式打开开关）**：`aiwarden.agent.tools.require-approval` 缺省为空，
+  即默认配置下 C 端「待处理」卡片永不出现（机制本身有容器测试覆盖，缺的是演示开关）。
+  **展示 human_handoff 链路时必须带参数**：`-Daiwarden.agent.tools.require-approval=create_ticket`。
+  未改缺省值的取舍：默认开启会让「建单」这一主演示动作多一步人工停顿，而容器测试已覆盖该路径。
+  界面层闭环实测：卡片「待处理」→ 点「批准执行」→ 卡片变 `SUCCEEDED`，
+  DB 侧 `t_tool_invocation` 该行为 SUCCEEDED + 审计 `TOOL_APPROVED`。
 - **B 端管理接口身份口径已统一（2026-10-10 收口，裁决 22）**：`/api/v1/admin/**` 全部端点统一要求
   **租户 + 主体双必填**（缺失即 400、不回落默认值），经 `AdminAccess.requireIdentity()` 单点收口。
   收口前的实测不一致：`/audit`、`/usage`、`/eval/report`、`/billing/*` 只校验租户（缺主体也 200），
@@ -80,14 +120,11 @@
   此前前端实现了该链路、后端从不产出标记，**功能存在但不可达**（FR-APP-02 的「正文可点引用」演示中实际缺失）。
 - **前端不在 Maven 生命周期内**：`aiwarden-web/` 是独立 pnpm 工程（**不进 `mvn verify`、不计入测试数**），
   验证口径是 `pnpm build`（含 `vue-tsc --noEmit`）+ dev server 冒烟——**CI 绿不等于前端可构建**。
-- **本机 Kafka 端口问题已解决（2026-10-10）**：Windows 把 TCP 9092 划进了保留端口区间
-  （`netsh interface ipv4 show excludedportrange protocol=tcp` → 9003-9102），宿主机无法 bind，
-  导致 outbox 卡 PENDING、摄入与计量停摆。已在 `docker-compose.yml` 内置绕行
-  （kafka 内部 19092 + `kafka-proxy` 顶到宿主机 **29092**），应用侧用 gitignore 的
-  `application-local.yml`（profile `local`）把 `bootstrap-servers` 指向 29092。
-  **本机启动后端需激活 profile `local`**（IDE 运行配置或 `-Dspring-boot.run.profiles=local`）；
-  Linux / CI 不需要。实测已全链路打通：outbox 全 SENT、文档摄入 INDEXED、计量落 `t_llm_call_log`、
-  用量接口返回真实明细。详见 [`AGENTS.md`](../AGENTS.md) §4 末条与 [`README.md`](../README.md)。
+- **本机 Kafka 端口问题已解决（2026-10-10）**：Windows 把 TCP 9092 划进了保留端口区间，宿主机无法 bind，
+  导致 outbox 卡 PENDING、摄入与计量停摆。绕行已内置进 `docker-compose.yml`
+  （kafka 内部 19092 + `kafka-proxy` 顶到宿主机 **29092**），本机启动需激活 profile `local`，Linux / CI 不需要。
+  **根因、判据与处置的唯一正文见 [`docs/dev/troubleshooting.md`](dev/troubleshooting.md) 第 2 条。**
+  实测已全链路打通：outbox 全 SENT、文档摄入 INDEXED、计量落 `t_llm_call_log`、用量接口返回真实明细。
 - **未做**：P4b（预算降级，裁决 19 砍除）、P5（断点续跑，M4）、用户鉴权（M3 身份头为认证层输出的模拟）；
   **`t_llm_call_log.cost` 回填与 OTel span 归 M4**。
 
@@ -95,6 +132,8 @@
 
 - **M4**：P5 断点续跑 + OTel 全链路 Trace + 压测报告（P95/P99 与吞吐拐点）+ K8s 可选实验，
   以及上一条「B 端主体校验口径统一」。
+- **M4 同时补 [`FAILURE.md`](FAILURE.md) 失败索引**：随本期新增条目登记，并逐条核对既有指针仍然有效
+  （交付物定义与产出时点见 [`PRD.md`](PRD.md) §8.1）。
 
 里程碑定义见 [`docs/PRD.md`](PRD.md) §8（唯一权威源）。
 
@@ -103,7 +142,11 @@
 本仓库为**公开版**。以下属**内部材料，存放于仓库外**——**不要把它们加回本仓库**：
 
 - 编号 **01、02** 的两份前期调研文档；
-- `docs/research/inbox/` 原始报告；
-- 个人规划类文档（简历 / 作品集策略等）。
+- **3 份原始调研报告**（`inbox/`，共 158 KB）——**不可删**：公开仓库的 `docs/research/03` 第 7 行明确点名其中
+  **2 份**为它的取证底稿，而 `inbox/README.md` 自己立了规矩「正文结论以这三份为源，**分歧时以原始报告为准并回修正文**」；
+  删掉等于剪断 03 / 04 的 star 口径与饱和度结论的证据链，也让「多口径并列不取平均」「未查证清单」失去可翻查的出处；
+- 个人规划类文档（简历 / 作品集策略 / 对外口径正文等）——含原 `docs/PRD.md` §14 的全部内容，
+  2026-10-10 迁至**仓库外的内部材料目录**（不在本仓库工作树内，也不预留 gitignore 的隐藏目录，理由见
+  [`docs/README.md`](README.md)「不随仓库公开」）。
 
 正文中对它们的引用**保留文字叙述、不提供链接**，以免出现死链（[`README.md`](../README.md) 文末同款声明）。

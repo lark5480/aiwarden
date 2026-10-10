@@ -150,40 +150,25 @@ M1/M2 均为确定性数据面（摄入 / 检索 / 工具 / 配额），全项�
 | 前端代理链路 | 经 Vite 代理（5173→8080）：`/api` 与 `/actuator/prometheus` 均通，SSE 完整流过 |
 | 前端构建 | `pnpm build`（含 `vue-tsc --noEmit`）通过；dev server 启动无编译错误 |
 
-### 真实缺陷（都是「不报错但不生效」，且当时的 112 个测试一个都发现不了）
+### 真实缺陷（六个，都是「不报错但不生效」；当时的 112 个测试一个都发现不了）
 
-1. **`aiwarden-start` 的 test scope `lettuce-core` 把运行期 Redis 客户端挤掉了**：Maven 就近声明压过
-   `spring-boot-starter-data-redis` 的 compile 传递依赖 → 测试 JVM 有 lettuce（全绿）、fat jar 没有 →
-   `StringRedisTemplate` 无候选 bean → **`java -jar` 启动即失败**。修正：删除该 test 依赖。
-   **推论已入 [`AGENTS.md`](../../AGENTS.md) §4：`mvn verify` 全绿 ≠ 应用能启动，改依赖后必须做 `java -jar` 启动冒烟。**
-2. **Micrometer 导出时剥掉 Gauge 名尾部 `_total`**：注册名 `aiwarden_vector_orphan_total` →
-   导出名 `aiwarden_vector_orphan`；前端按注册名抓取 → 曲线**永远采不到点**。修正：解析器两种形态都认。
-3. **`aiwarden.agent.tools.require-approval` 缺省为空**——即默认配置下 C 端人工确认卡片永不出现
-   （机制有容器测试覆盖，但演示开关未打开）。**本次未改缺省值**：默认开启人工确认会让「建单」这一主演示动作
-   多一步人工停顿，而容器测试已覆盖该路径；**演示时需显式打开**：
-   `-Daiwarden.agent.tools.require-approval=create_ticket`（本次 human_handoff 实测即用此参数）。
-   界面层闭环亦已验证：卡片「待处理」→ 点「批准执行」→ 卡片变 `SUCCEEDED`，
-   DB 侧 `t_tool_invocation` id=4 SUCCEEDED + 审计 `TOOL_APPROVED target=4`。
-4. **B 端管理接口身份口径不一致——已于收官后统一（裁决 22）**：原状为
-   `GET /api/v1/admin/audit`、`/usage` **只带租户头（缺 `X-Aiwarden-User-Id`）也返回 200**，
-   而 `/api/v1/chat` 与检索入口会以 `MissingPrincipalContextException` 拒绝；
-   更进一步，**`/admin/consistency/*` 连租户都没校验**（裸扫全表即返回报告，`ConsistencyReconcileContainersTest`
-   原先裸调即 200 正是此因）。根因是这些 Controller 只调 `TenantContext.requireTenantIdAsLong()`。
-   **收口**：新增 `AdminAccess.requireIdentity()`（租户 + 主体双必填，缺失即 400 由既有 handler 映射），
-   五个管理 Controller 全部改走它；`AdminIdentityBoundaryContainersTest` 逐端点固化该口径
-   （缺租户 400 / 缺主体 400 / 齐备非 4xx 非 5xx，**端点清单单一事实源**）。
-   **仍不做租户维度过滤**——`t_reconcile_report` 与 `t_eval_report` 是平台级数据（对账为全表扫描），
-   真实鉴权接入时应在此处升级为角色校验。
-5. **前端引用面板永远 0 条**（接口层完全看不见，见下节「浏览器实测」）：`messages.value.push(turn)` 后
-   继续改**原始对象**，绕过 Vue 代理拦截 → 数据变了但不重渲染。修正：push 后从数组取回代理。
-6. **「功能存在但不可达」：内联引用标记前端实现了、后端从不产出**——编排的 system prompt 一直要求
-   「引用以 [序号] 标注」，C 端 `MarkdownBlock` 也早已实现 `[n]` → 可点击引用上标
-   （`citationCount` + `pick-citation` 事件），但 `MockModelClient` 从不产出标记。
-   后果：FR-APP-02 的「正文里点引用跳转」在演示中**实际不可用**，而侧栏文案却写着「回答中的 [序号]
-   与上面条目一一对应」——**界面在替不存在的功能做承诺**。
-   这类缺陷比「没实现」更隐蔽：没有报错、没有 TODO，只有真去点一次才会发现。
-   **修正**：替身按检索片段编号产出 `[1][2]…`（与真实模型遵循同一句 system prompt 的行为对齐），
-   并用 3 个单测固化（含「0 命中时不得产出任何标记」——否则上标会指向不存在的条目）。
+> **归位说明（2026-10-10）**：这一节原本是逐条 RCA 正文，与 [`AGENTS.md`](../../AGENTS.md) §4、
+> [`docs/STATUS.md`](../STATUS.md) §3、[`docs/dev/troubleshooting.md`](../dev/troubleshooting.md) 构成三份副本。
+> 现按「一条事实一个正文」压缩为**结论 + 去向**——机制与判据的正文在那三个文件里，本表只留决策视角。
+
+| # | 缺陷（结论） | 正文落点 |
+|---|---|---|
+| 1 | `aiwarden-start` 的 test scope `lettuce-core` 把运行期 Redis 客户端挤掉——**测试全绿而 `java -jar` 启动即失败** | AGENTS §4（依赖 scope 条）；启动冒烟口径见 STATUS §2 |
+| 2 | Micrometer 导出时剥掉 Gauge 名尾部 `_total`，前端按注册名抓取 → **曲线永远采不到点** | AGENTS §4（Micrometer 条） |
+| 3 | `aiwarden.agent.tools.require-approval` 缺省为空 → 人工确认卡片默认永不出现（**机制有测试覆盖，缺的是演示开关**） | STATUS §3（演示开关条，含启动参数） |
+| 4 | B 端管理接口身份口径不一致 → 已收口为「**租户 + 主体双必填**」（裁决 22） | STATUS §3（裁决 22 条）+ 06 号清单裁决 22 |
+| 5 | 前端把 mutation 打在响应式代理之外：数据变了但**不重渲染**（引用面板永远 0 条） | AGENTS §4（Vue 代理条，含 CDP 定位手法） |
+| 6 | 「**功能存在但不可达**」：内联引用标记前端实现了、后端从不产出 → 界面在替不存在的功能做承诺 | STATUS §3（裁决 22 内联引用条） |
+
+**本 ADR 视角的结论**：缺陷 3 / 4 / 6 不是「代码写错」，而是**默认配置与对外承诺之间的缝隙**——
+容器测试全绿、接口层全对，只有真去点一次才暴露。这正是决策 3（评测走 Mock 替身 + 真实治理管道）
+刻意保留的边界：**门禁证明「管道对任意模型决策的约束执行」，不证明「界面按承诺可用」**；
+后者靠端到端与浏览器实测补位（见下两节）。
 
 ### 本轮修订的测试口径
 `mvn -B -ntp -o verify` **112 测试全绿**；评测门禁单类复跑 `total=24 passed=24 denyBlocked=7/7
@@ -204,24 +189,19 @@ duplicateTickets=0 p95=52ms avgCost=0.000509`（演示单价；P95 逐轮抖动�
 | `/admin/usage` | **真实明细 4 条 / 总 402 tokens**（Kafka 修复前此页恒为空数组） |
 | `/admin/eval` | 本地库无数据 → 404 且如实显示后端原文与原因说明（预期行为） |
 
-**缺陷 5（接口层无法发现，已修）**：`ChatView` 里
-`const turn = newTurn(); messages.value.push(turn)` —— `push(raw)` 之后模板渲染读的是 **Vue 代理**，
-而局部变量 `turn` 仍指向**原始对象**，后续 12 处 `turn.citations.push(...)` / `turn.outcome = ...`
-全部绕过代理的 set/add 拦截：**数据确实变了（DevTools 读 `setupState` 能看到 2 条）、面板却停在初始状态**
-——检索明细写着 `hits=2`，而引用侧栏永远「0 条」。
-修正：`messages.value.push(newTurn())` 后**从数组取回代理**（`messages.value[len-1]`）再改。
-**方法论沉淀**（已入 [`AGENTS.md`](../../AGENTS.md) §4）：这类「数据对但 UI 不对」的问题靠看截图会绕很久，
-用 CDP **同时**读 `setupState` 与 DOM，再做「从代理直插一条 → 观察 DOM 是否跟随」的对照实验即可一次定性。
+**抓到缺陷 5（接口层完全看不见，已修）**：`ChatView` 把 mutation 打在响应式代理之外——
+数据确实变了（DevTools 读 `setupState` 有 2 条）但**面板停在初始状态**，检索明细写着 `hits=2`、
+引用侧栏却永远「0 条」。**机制、修正写法与「同时读 `setupState` 与 DOM + 直插对照实验」的定位手法，
+唯一正文见 [`AGENTS.md`](../../AGENTS.md) §4**（该条正是本轮沉淀出来的）。
 
 ### 本机环境已知限制（与代码无关，如实记录）
 
 ~~`docker compose up -d` 起 Kafka 后，host 侧 `localhost:9092` 发布端口转发不通……~~
-**已于同日解决并复测（2026-10-10，保留原因分析以免后人重踩）**：
-根因是 **Windows 把 TCP 9092 划进了保留端口区间**（`netsh interface ipv4 show excludedportrange protocol=tcp`
-→ `9003-9102` / `9103-9202`），**被保留的端口宿主机上任何进程都不允许 bind**——因此 Docker Desktop
-的发布**既不 bind 也不报错**、`netsh portproxy` 亦不生效，表现为「容器 healthy、宿主机无监听者、
-客户端一路 `Connection to node -1 (localhost:9092) could not be established`」。
-绕行已内置进 `docker-compose.yml`：kafka 内部端口 `19092/19093`，由 `kafka-proxy`（socat，compose 网络内直连）
-顶到宿主机 **29092**，应用侧用 gitignore 的 `application-local.yml`（profile `local`）指向 29092。
+**已于同日解决并复测（2026-10-10，保留结论以免后人重踩）**：根因是 **Windows 把 TCP 9092 划进了保留端口区间**
+——被保留的端口宿主机上任何进程都不允许 bind，因此 Docker Desktop 的发布**既不 bind 也不报错**、
+`netsh portproxy` 也加不上，表现为「容器 healthy、宿主机无监听者、客户端一路
+`Connection to node -1 (localhost:9092) could not be established`」。
+绕行（kafka 内部 `19092/19093` + `kafka-proxy` 顶到宿主机 **29092** + 应用侧 profile `local`）
+已内置进 `docker-compose.yml`；**根因判据与处置步骤的唯一正文见 [`docs/dev/troubleshooting.md`](../dev/troubleshooting.md) 第 2 条。**
 **复测证据**：outbox 31 条全 `SENT`、文档摄入 `PENDING → INDEXED`、计量落 `t_llm_call_log`、
-`/api/v1/admin/usage` 返回真实明细。**Linux / CI 不需要这套绕行**（判据与步骤见 AGENTS §4）。
+`/api/v1/admin/usage` 返回真实明细。**Linux / CI 不需要这套绕行。**

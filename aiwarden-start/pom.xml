@@ -128,7 +128,7 @@
             <scope>test</scope>
         </dependency>
 
-        <!-- 消息层：Kafka（PRD §7.1；ADR-004 实测裁决保留 Kafka，对照数据见 docs/DECISIONS.md；
+        <!-- 消息层：Kafka（PRD §7.1；ADR-004 实测裁决保留 Kafka，对照数据见 docs/adr/ADR-004-keep-kafka.md；
              语义回归测试与逃生梯对照测试在 com.aiwarden.start.decision 包） -->
         <dependency>
             <groupId>org.springframework.boot</groupId>

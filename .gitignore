@@ -27,6 +27,11 @@ pgdata/
 .DS_Store
 Thumbs.db
 
+# ---- Internal material (防手滑的兜底，正常情况下该目录不存在) ----
+# 内部材料放仓库外的独立目录，不放这里：gitignore 只约束 `git add`，不约束 `add -f`、
+# 目录整体复制 / 打包 / 同步，且 **/*.md 全局检索会命中它。见 docs/README.md「不随仓库公开」
+docs/INTERNAL/
+
 # ---- Temp ----
 *.tmp
 *.bak

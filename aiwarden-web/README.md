@@ -31,17 +31,16 @@ docker compose up -d
 mvn -B -ntp -DskipTests install
 
 # 3) Spring Boot 应用（aiwarden-start，缺省端口 8080）
-#    Windows 本机需带 local profile（Kafka 端口被 Windows 保留区间占用的绕行，见根 README「Kafka 与 Windows 保留端口」）
+#    Windows 本机需带 local profile（Kafka 端口被 Windows 保留区间占用的绕行，见 docs/dev/troubleshooting.md 第 2 条）
 mvn -B -ntp -pl aiwarden-start spring-boot:run -Dspring-boot.run.profiles=local
 ```
 
-> ⚠️ **不要写成 `mvn -pl aiwarden-start -am spring-boot:run`**：`-am` 会把根聚合工程也放进 reactor，
-> 而 reactor 里每个模块都会执行该 goal → 根 pom 无 main class → 报 `Unable to find a suitable main class`；
-> 若去掉 `-am` 又会因兄弟模块不在本地仓库报 `Could not resolve dependencies`。
-> 多模块工程的 `spring-boot:run` 是「先 install，再单模块 run」两步。理由与替代方案见根 [`README.md`](../README.md)「本地怎么跑起来」。
+> ⚠️ **不要写成 `mvn -pl aiwarden-start -am spring-boot:run`**（会报 `Unable to find a suitable main class`）。
+> **多模块启动的正确两步与三种死法、IDE 启动方式、`5432 refused` 与 Kafka 保留端口的判据——
+> 唯一正文见 [`docs/dev/troubleshooting.md`](../docs/dev/troubleshooting.md)（第 1 / 2 / 4 条）。**
 >
-> **用 IDE 启动更省事**：直接跑 `com.aiwarden.start.AiwardenApplication#main`（IDE 自带模块 classpath，无需 install）。
-> 但**必须先 `docker compose up -d`**——否则报 `Connection to localhost:5432 refused`（那是数据库没起，不是代码问题）。
+> **用 IDE 启动最省事**：直接跑 `com.aiwarden.start.AiwardenApplication#main`（IDE 自带模块 classpath，无需 install），
+> 但两个硬前提不变：**基础设施已起** + Windows 本机带 profile `local`。
 
 后端就绪判断：`GET http://localhost:8080/actuator/health`。
 

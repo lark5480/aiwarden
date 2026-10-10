@@ -4,8 +4,9 @@
 > 只放「**写错代价高、不翻代码发现不了**」的铁律与坑；能指针就不重抄——产品需求看 [`docs/PRD.md`](docs/PRD.md)，
 > 技术决策看 [`docs/adr/`](docs/adr/README.md)，对外表述红线看 [`docs/PRD.md`](docs/PRD.md) §15。
 >
-> **本文件处于「随代码生长」状态**（2026-10 起；M2 完成，仓库已有业务代码）：地图 + 纪律 + 实测踩过的坑。
+> **本文件处于「随代码生长」状态**（2026-10 起，已有业务代码）：地图 + 纪律 + 实测踩过的坑。
 > 每踩一个坑、每定一条与代码相关的约定，就往 §4 追加一条。
+> **本文件不写里程碑 / 阶段状态**（那是会腐化的描述，见 [`docs/STATUS.md`](docs/STATUS.md) §1）。
 >
 > ⚠️ **不要在本文件写「计划」**。描述未来状态的内容会腐化，而 `**/*.md` 检索命中后会把过期的
 > 未来状态当成待办——存量项目已吃过这个亏（原 `docs/compose/plans/` 因同类原因被删）。
@@ -14,39 +15,104 @@
 
 ## 1. 文档职责与指针
 
-| 我想知道… | 看这里 |
-|---|---|
-| 产品要做什么、验收标准、里程碑 | [`docs/PRD.md`](docs/PRD.md)（**需求唯一权威源**） |
-| 某个技术决策为什么这么选 | [`docs/adr/`](docs/adr/README.md)（**决策唯一权威源**，一文件一 ADR；与 PRD 冲突时以 ADR 为准） |
-| 立项前的调研与论证序列 | [`docs/research/`](docs/research/README.md)（含编号说明与口径提醒） |
-| 对外表述红线（README / 对外材料 / 公开表述） | [`docs/PRD.md`](docs/PRD.md) §15 |
-| 项目进度与公开范围 | [`docs/STATUS.md`](docs/STATUS.md)（**易过期**，与 ADR 相反）· 对外范围见 [`README.md`](README.md) |
+> **索引正文见 [`docs/README.md`](docs/README.md)**（活文档 vs 冻结资产的职责边界、各子目录入口、「我该看哪个」路由）——
+> 本文件**不再复制那张表**。「哪条事实归哪个文件」的工作用映射表在下一节 §2，那张表只服务于口径变更时的定位。
+>
+> 一句话入口：需求看 [`docs/PRD.md`](docs/PRD.md)，决策看 [`docs/adr/`](docs/adr/README.md)，
+> 进度与实测数字看 [`docs/STATUS.md`](docs/STATUS.md)，环境排障看 [`docs/dev/troubleshooting.md`](docs/dev/troubleshooting.md)，
+> 失败索引看 [`docs/FAILURE.md`](docs/FAILURE.md)，对外门面是根 [`README.md`](README.md)。
 
 ---
 
-## 2. 铁律：口径变更必须一次性同步（**本项目已因缺此条踩过坑**）
+## 2. 铁律：一条事实只有一个正文，其余只允许指针（**本项目文档之乱源于缺这条**）
 
-**任何「口径级」变更**——选型反转、承诺增删、范围裁剪、术语改名、指标口径调整、评测样本数量变化——
-**必须在同一次改动里同步下列文件**，**不允许「先改 PRD，外围文档下轮再说」**：
+**任何「口径级」事实**——版本号、承诺增删、范围裁剪、术语改名、指标口径、实测数字、环境排障步骤——
+**必须能在下表唯一的权威源里找到正文**；其它文件只允许出现**一句结论 + 指针**，不允许出现第二份正文。
+**发现第二份正文即视为文档缺陷**，就地删除并改成指针。
 
-| 文件 | 要同步的位置 |
-|---|---|
-| `docs/PRD.md` | 受影响的 §1 / §3 / §6 / §7 / §8 / §10 / §12 / §14 / §15，并更新文首「文档版本」 |
-| `README.md` | **第一屏承诺表 + 两条边界声明 + 结论表 + 技术栈表 + 版本红线** |
-| `docs/adr/` | 新增 `ADR-00X-<slug>.md`，或在其末尾追加 `## 修订（YYYY-MM）` 段（**不改写原文**）；索引同步 |
-| `docs/research/06-PRD修订裁决清单.md` | 追加新裁决条目（编号顺延） |
+| 事实类别 | 唯一权威源 | 其余位置允许的形态 |
+|---|---|---|
+| 要做什么、验收标准、范围、里程碑定义 | [`docs/PRD.md`](docs/PRD.md) | 一行指针 |
+| 技术 / 版本选型为什么这么定 | [`docs/adr/`](docs/adr/README.md)（与 PRD 冲突以 ADR 为准） | 一行指针 |
+| **实测数字与验证口径**（测试数 / 评测结论 / 治理税 / P95 / 单次成本） | [`docs/STATUS.md`](docs/STATUS.md) §2 | 结论摘要 + 指针；README 第一屏是它的**对外投影** |
+| 当前阶段 / 已知边界 / 公开范围 | [`docs/STATUS.md`](docs/STATUS.md) §1/§3/§5 | 摘要 + 指针 |
+| **本机环境排障**（端口、进程、容器、profile、Maven reactor） | [`docs/dev/troubleshooting.md`](docs/dev/troubleshooting.md) | 症状一句话 + 指针 |
+| **代码 / 配置层面的机制坑**（写错会静默不生效的东西） | 本文件 §4 | 指针 |
+| 对外表述红线（禁词 / 话术 / 竞品证据分级） | [`docs/PRD.md`](docs/PRD.md) §15 | 指针 |
+| 走过并被记录在案的失败 / 放弃 / 未达成 | [`docs/FAILURE.md`](docs/FAILURE.md)（**只是索引**，定义见 [`docs/PRD.md`](docs/PRD.md) §8.1；机制正文仍各归其权威源） | 一行结论 + 指针 |
+| 争议怎么拍板的 | [`docs/research/06-PRD修订裁决清单.md`](docs/research/06-PRD修订裁决清单.md)（编号顺延追加） | 指针 |
+| 版本号 | [`pom.xml`](pom.xml)；基础设施镜像 tag 见 [`docker-compose.yml`](docker-compose.yml) | 任何文档引用的版本号都必须能在此找到坐标 |
+| **对外口径正文 / 求职排位** | **仓库外的内部材料目录**（不在本工作树；公开仓库只留 PRD §14 的空壳指针） | **禁止检索、禁止提交、禁止在公开文档里给链接**——理由见 [`docs/README.md`](docs/README.md)「不随仓库公开」 |
 
-**为什么立这条**：2026-10 本轮就吃过亏——PRD v2 已把底座从 SB 3.5 反转到 SB 4.1 并写进版本红线，
-但 **README 整轮没更新**，公然挂着 `Spring Boot 3.5` 徽章和「与 SB 3.5 无冲突」的红线表述，
-而 README 是外部读者第一眼看的东西。**根因不是疏忽，是没有清单。**
+**例外——冻结资产不算副本**：`docs/research/`（01–05 与 06 的裁决条目）、各 ADR 的「验证」段与「修订」段里出现的
+实测数字，是**裁决/决策时点的证据**，属只增不改的历史，**不回改也不迁走**（06 号清单里「落到 README 的动作」
+这类描述同理）。判据一句话：**活文档（PRD / README / STATUS / 本文件）漂移是缺陷，冻结资产里的旧数字是记录。**
 
-**提交前自查**（`README.md` 与 `docs/PRD.md` 的正文）：
+**口径级变更的动作序列**（一次改动内做完，不允许「先改 PRD，外围文档下轮再说」）：
 
-1. **版本号**：两处一致，且都能在 `pom.xml` 找到对应坐标（当前应为 `Spring Boot 4.1.1`、
+1. 按上表定位权威源，**只改那一处正文**；
+2. 属于新决策的：在 `docs/adr/` 落 `ADR-00X-<slug>.md`，或在被演进条目末尾追加 `## 修订（YYYY-MM）` 段
+   （**不改写原文**），并同步 `docs/adr/README.md` 索引；
+3. 在 06 号清单追加裁决条目（编号顺延）；
+4. **检查扩散面**：`grep` 该口径的关键词，确认除权威源外各处都是指针——**残留正文就地改成指针**；
+5. README 若投影了数字，从 STATUS §2 **单向复制**（方向不可逆：永远 STATUS → README，不反向维护）。
+
+**文档改动的收尾校验（不能靠眼看，2026-10-10 起为硬要求）**——四条命令跑完再报完成：
+
+```bash
+# ① 相对链接：抽出全部 .md 链接并测目标存在（改了相对基准就会静默断链）
+for f in README.md AGENTS.md docs/README.md docs/PRD.md docs/STATUS.md docs/FAILURE.md \
+         docs/dev/troubleshooting.md docs/adr/README.md docs/research/README.md docs/adr/ADR-*.md; do
+  d=$(dirname "$f"); grep -ohE '\]\([^)]+\.md(#[^)]*)?\)' "$f" | sed -E 's/^\]\(//; s/\)$//; s/#.*$//' | sort -u \
+    | while read l; do case "$l" in http*|/*) continue;; esac; [ -f "$d/$l" ] || echo "BROKEN $f -> $l"; done; done
+
+# ② 副本计数：被迁走的关键判据应当只剩一处正文
+grep -rl --include="*.md" "<关键短语>" README.md AGENTS.md docs | grep -v node_modules
+
+# ③ 权威源纯度：把 STATUS §2 结论表里的「实测数字」自动提出来反查别处
+#    （注意区分：**目标线 / 验收口径的数字 PRD 里合法**，如「P95 < 800ms」「20–30 条」；
+#     只有实测结果数字——ms / 元 / x/x 计数——不允许离开 STATUS。README 是允许的投影，不查它。）
+awk '/^### 结论表/,/^### 复现口径/' docs/STATUS.md \
+  | grep -oE '[0-9]+(\.[0-9]+)?ms|[0-9]+\.[0-9]+ ?元|[0-9]+/[0-9]+' | sort -u \
+  | while IFS= read -r v; do for f in docs/PRD.md docs/FAILURE.md AGENTS.md docs/dev/troubleshooting.md; do
+      grep -qF -- "$v" "$f" && echo "COPY 「$v」 in $f"; done; done
+#    必须用 `while IFS= read -r` 逐行读——直接 for 会把「数字 + 空格 + 单位」的值拆成两个词，误报一条
+#    （另注：本代码块里不要照抄任何实测数字，否则这条检查第一个把它判成副本——就是这样误报过一次的）
+
+# ④ 自述数字与实测对齐：文件里写了「共 N 条 / N 行」的，当场数一遍
+#    核法要正确，否则会误报成「文档有缺陷」：
+#      表数据行 = grep -c '^|' 文件 − 表头行数 − 分隔行数
+#      ✗ 不要用 '^| [0-9]' 数行——以「M2」「来源未标日期」开头的行会被漏掉（实测把 38 条数成 26）
+#      行数用 wc -l，节长用 awk '/^## 起/,/^## 止/' 量，别凭印象写进裁决记录
+#    （本轮就靠这条抓到 06 号里两处估错的行数：「约 180」实为 186、「98 → 20」实为 98 → 47）
+```
+
+**另两条边界**：`docs/` 与子目录之间移动内容时**必须同步改相对链接基准**；指向仓库外内部材料的文字
+**不得改成链接**（点了打不开），其**节名 / 编号是锚点**，活文档改名会让冻结资产里的指向失效。
+
+**为什么立这条**——两个都是实测教训：
+
+- **缺清单会漏同步**：2026-10 那轮 PRD v2 已把底座从 SB 3.5 反转到 SB 4.1 并写进版本红线，
+  但 **README 整轮没更新**，公然挂着 `Spring Boot 3.5` 徽章和「与 SB 3.5 无冲突」的红线表述，
+  而 README 是外部读者第一眼看的东西。
+- **但「同步 N 份正文」是纪律的对立面**：上一条旧纪律要求同一口径同时改 PRD / README / ADR / STATUS，
+  实际结果是同一批实测数字散在 4 个文件里各有正文、并开始措辞漂移（同一台机器一处写「8 核 32G 单机」、
+  一处写「i7-7700 4C8T/32GB」）；环境排障的同一套 `netsh` 判据写了 4 份。**副本数决定漂移概率，与是否细心无关。**
+  所以本条把「同步」换成「**归位**」：事实写一次，别处指过去。
+- **测试数只能用 Maven 的模块汇总行**：`[INFO] Tests run: N`（各模块 `Results:` 段那两行）。
+  **不要**把每个测试类的逐行输出、或 `target/surefire-reports/TEST-*.xml` 直接相加——聚合测试类会 fork 多 JVM，
+  同名类出现两行，另有 `@Disabled` 不计入；实测按后者算得 151，而真值 **127**，差点把正确的文档改成错的。
+  判据：**只信汇总行**；要复核就把三个有测试的模块的 `Tests run` 相加（`common` + `knowledge` + `start`）。
+
+**提交前自查**：
+
+1. **版本号**：所有出现的版本号都能在 `pom.xml` 找到对应坐标（当前为 `Spring Boot 4.1.1`、
    `LangChain4j 1.21.0` + starter `1.21.0-beta31`）。
 2. **已作废的口径**：`算力`、`分库分表` / `ShardingSphere`、`gRPC`、`语义缓存`、`三档`、`HITL 三态`、`60 条`——
    这些词**只允许出现在「已裁剪 / 不得说 / 不做」这类否定语境里**，不得作为当前选型或当前承诺出现。
    （`AGENTS.md` 本节与 `docs/PRD.md` §15 的**禁令清单本身**同理，不计入。）
+3. **相对链接基准**：内容在 `docs/` 与其子目录之间移动时**必须改链接基准**，否则静默断链
+   （ADR 拆分时踩过，见 [`docs/adr/README.md`](docs/adr/README.md) 末注）。
 
 ---
 
@@ -62,9 +128,11 @@
 
 ## 4. 已知的坑与约定（随代码生长）
 
-**本节现有二十一条，都是实测得来、且不翻代码发现不了的。**
+**本节只放「代码 / 配置层面」的坑**（写错会静默不生效的那类）。
+**本机环境类排障（端口、进程、容器、profile、Maven reactor）不在这里，见 [`docs/dev/troubleshooting.md`](docs/dev/troubleshooting.md)。**
+条目只增不减；正文迁走时降级为一行指针（保留「一眼认出症状」的能力）。
 
-> **先记一条可迁移的判断规则**：下面二十一条里有**十条**共享同一个失效形态——**不报错、只是静默不生效**：
+> **先记一条可迁移的判断规则**：本节多数条目共享同一个失效形态——**不报错、只是静默不生效**：
 > - **名字写错**：`-betaNN` 版本后缀、Jackson 属性名少一个连字符、`flyway-core` 与 `spring-boot-starter-flyway` 的区别、
 >   Micrometer 导出时剥掉 Gauge 的 `_total` 后缀；
 > - **依赖被挤掉**：同名依赖在装配模块以更近的 test scope 重复声明，运行期依赖静默消失；
@@ -81,7 +149,7 @@
 > **推论——验证本身也要自证**：做行为 / 性能验证时，必须断言**机制确实被触发**（执行计划走了目标索引、
 > 消费组确实提交了位移、指标确实已注册），否则小样本上极易得到「全对、但什么都没证明」的假结论。
 > 本项目已**三次**栽在这点上：ArchUnit 选择器拼错仍全绿、HNSW 选择性实验退化成顺序扫描、
-> 以及 M2 的「HNSW 三重假绿」（小表走精确路径 / 数据插入顺序把入口点放进可见团 / 审计被事务回滚——见本节末条）。
+> 以及 M2 的「HNSW 三重假绿」（小表走精确路径 / 数据插入顺序把入口点放进可见团 / 审计被事务回滚——见本节 HNSW 条）。
 
 - **LangChain4j 的两处坐标版本号形态不同**：核心件是 `dev.langchain4j:langchain4j:1.21.0`，而 starter 模块是
   `dev.langchain4j:langchain4j-spring-boot4-starter:1.21.0-beta31`。
@@ -146,72 +214,26 @@
   不再等于「应用能启动」。判据：凡改依赖（尤其 scope）后，必须做一次
   `mvn -pl aiwarden-start -am package -DskipTests` + `java -jar` 的启动冒烟；
   `dependency:tree` 也要看**最终装配模块**（`-pl aiwarden-start`），或直接核对 jar 的 `BOOT-INF/lib`。**
-- **多模块工程的 `spring-boot:run` 必须「先 install，再单模块 run」两步，不能一步到位（2026-10-10 实测）**：
-  根 pom 的 `spring-boot-maven-plugin` 只在 `aiwarden-start` 里有 `<goal>repackage</goal>`，
-  但 `spring-boot:run` 是**命令行 goal**——reactor 里**每个模块**都会执行它，于是三种写法各有死法：
-  ① `mvn -pl aiwarden-start -am spring-boot:run`（从根）→ `-am` 把根聚合工程与兄弟模块一并入 reactor，
-  根 pom 无 main class → `Unable to find a suitable main class`（**报错里是项目 `aiwarden`，不是 `aiwarden-start`**，
-  极易误读成「start 模块坏了吗」）；
-  ② `mvn -pl aiwarden-start spring-boot:run`（不带 `-am`）→ 兄弟模块 `0.1.0-SNAPSHOT` 不在本地仓库 →
-  `Could not resolve dependencies`；
-  ③ **在 `aiwarden-start/` 目录里跑 `-am` 也无效**——Maven 只有「从根跑的聚合构建」才有完整 reactor，
-  在子模块目录执行只看到它自己，`-am` 无兄弟可加。
-  **可用写法**（本项目实测通过，app 正常 `Started AiwardenApplication`）：
-  `mvn -B -ntp -DskipTests install`（一次，改了兄弟模块后重跑）→
-  `mvn -B -ntp -pl aiwarden-start spring-boot:run -Dspring-boot.run.profiles=local`
-  （`run` 会现场编译该模块，改 start 自身代码不必重 install；**`local` profile 的理由见本节末条 Kafka 端口**，
-  Linux / CI 上可省略）；
-  或完全绕开 plugin：`mvn -pl aiwarden-start -am -DskipTests package` + `java -jar aiwarden-start/target/*.jar`。
-  **另注**：本机 `mvn install` **不能加 `-o`**——`maven-install-plugin` 自身的依赖未缓存，离线会
-  `PluginResolutionException`（`verify` 可以离线，`install` 不行）。
-- **改兄弟模块后必须重跑 `install`：`spring-boot:run -pl aiwarden-start` 读的是本地仓库里的 SNAPSHOT jar（2026-10-10 实测，本轮自己踩了）**：
-  `spring-boot:run` 只现场编译**它自己那个模块**（`aiwarden-start`），其余模块走**本地仓库的已安装 jar**。
-  于是「改了 `aiwarden-agent` 的代码 → 只跑 `spring-boot:run`」会**跑到旧逻辑**，而 `target/classes` 里的
-  class 明明是新的——实测症状极具迷惑性：HTTP 响应返回的是**几小时前的旧文案**，
-  而 `MockModelClient.class` 里新方法、新字符串常量**全都在**（因为那是 `mvn verify` 编出来的），
-  查源码、查 class、查全仓文本都找不到「旧文本从哪来」。
-  **判据**：`target/classes/**` 新 ≠ 生效；要对齐就比 **本地仓库 jar 的时间戳**
-  （`...\repository\com\aiwarden\aiwarden-agent\0.1.0-SNAPSHOT\*.jar`）。
-  **纪律：改了任一兄弟模块 → 先 `mvn -B -ntp -DskipTests install`，再 `spring-boot:run`。**
-  同理，`java -jar` 跑的 fat jar 也只在 `package` 时生成，改了依赖模块同样要重新 `package`。
-- **评测页在本地开发库必为 404，不是故障（2026-10-10 实测）**：`t_eval_report` 由评测门禁测试写入
-  **Testcontainers 的临时数据库**，测试结束容器销毁——本地 `docker compose` 起的那套库里永远是空的，
-  `GET /api/v1/admin/eval/report` 必然返回 404 + `{"detail":"暂无评测报告…"}`。
-  **判据：看该接口 404 时先查 `t_eval_report` 行数，别去怀疑路由或 controller**（路由存在性可用
-  「不带身份头应返回 400」来证明——400 说明请求已到我们的 controller）。
-- **`Connection to localhost:5432 refused` 是「基础设施没起」，不是代码 / 装配问题（2026-10-10 实测）**：
-  应用启动时要连库跑 Flyway 迁移，容器不在就抛一长串 bean 链
-  （`UnsatisfiedDependencyException` → `flywayInitializer` → `jdbcTemplate`），**看起来像依赖装配故障**；
-  但**根因在异常链最底部的 `java.net.ConnectException: Connection refused: getsockopt`**——TCP 层不可达。
-  区分口径：**拒绝连接（TCP refused）= 库没起**；`28P01 / password authentication failed` = 库起了但凭据错；
-  `08001` 只是 JDBC 的连接失败 SQLState，两种都会有，别拿它判因。
-  **判据：先 `docker compose ps` 看 postgres 是否 `Up (healthy)`，再看 `Test-NetConnection localhost -Port 5432`。**
-  已给 compose 四个服务加 `restart: unless-stopped`，避免 Docker Desktop / 机器重启后「昨天还好今天炸」；
-  **别在收尾时无脑 `docker compose stop`——IDE 启动依赖它常驻。**
-- **Kafka 在宿主机 9092「连不上但容器一切正常」，根因是 Windows 保留端口区间（2026-10-10 实测定位）**：
-  症状是后端日志每秒刷 `Connection to node -1 (localhost:9092) could not be established`，
-  outbox 全部卡 `PENDING` → **文档摄入永不完成、计量不落库、用量看板恒空**；
-  而 `docker port` 显示映射存在、容器内 LISTEN 正常、`docker compose ps` 报 healthy。
-  **真因**：`netsh interface ipv4 show excludedportrange protocol=tcp` 显示本机 `9003-9102` / `9103-9202`
-  被保留（Hyper-V/WSL 动态端口段），**9092 落在里面——被保留的端口宿主机上任何进程都不允许 bind**，
-  于是 Docker Desktop 的发布**不 bind 也不报错**，`netsh interface portproxy` 加了规则同样不监听。
-  **判据（照顺序做）**：① `docker compose ps` 看 kafka 是否 healthy；② `Get-NetTCPConnection -LocalPort <port>`
-  ——**若「容器内 LISTEN 正常但宿主机无监听者」，就是保留端口问题，不是代码也不是 Docker 故障**；
-  ③ `netsh interface ipv4 show excludedportrange protocol=tcp` 确认端口是否落在区间内。
-  **本项目绕行**（已在 `docker-compose.yml` 内置）：kafka 改内部端口 `19092/19093`，
-  由 `kafka-proxy`（`alpine/socat`，compose 网络内直连 kafka，绕开宿主机转发层）把 Kafka 顶到宿主机
-  **29092**（已确认未被保留），`KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://localhost:29092`；
-  应用侧靠 gitignore 的 `aiwarden-start/src/main/resources/application-local.yml`（激活 profile `local`）
-  把 `spring.kafka.bootstrap-servers` 指到 `localhost:29092`。**Linux / CI 不需要这些**（把 ports 加回 kafka
-  并删掉 kafka-proxy，且不激活 `local`）。
-  **注意**：`socat` 代理被强杀（如 `Stop-Process -Force`）后可能不自动恢复，重启 `kafka-proxy` 即可
-  （已加 `restart: unless-stopped`，正常 Docker 生命周期会自愈）。
-- **`Web server failed to start. Port 8080 was already in use` = 上一次启动的进程没退，不是配置冲突（2026-10-10 实测）**：
-  IDE 里再点一次「运行」不会自动停掉旧实例；IDE 的 Stop 按钮也偶发不回收子进程
-  （实测残留的 `java -cp ...spring-boot-4.1...` 进程一直占着 8080，且它跑的还是**旧 profile**，
-  于是表现为「日志一直刷 Kafka 连不上」+「再次启动报端口占用」两个症状同一个根因）。
-  **判据与处理**：`Get-NetTCPConnection -LocalPort 8080 -State Listen | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force }`
-  再启动。**推论：IDE 启动失败时先确认「没有旧实例还在跑」，再怀疑配置。**
+- **跑的不是你以为的代码：`spring-boot:run` 只现场编译 start 自身模块，其余模块走本地仓库已安装的 jar**：
+  于是「改了 `aiwarden-agent` 的代码 → 只跑 `spring-boot:run`」会**跑到旧逻辑**，而 `target/classes` 里的 class
+  明明是新的——实测症状极具迷惑性：HTTP 响应返回的是**几小时前的旧文案**，而 `MockModelClient.class` 里新方法、
+  新字符串常量**全都在**（那是 `mvn verify` 编出来的），查源码、查 class、查全仓文本都找不到「旧文本从哪来」。
+  **判据：`target/classes/**` 新 ≠ 生效；要核对的是本地仓库
+  `…\repository\com\aiwarden\<兄弟模块>\0.1.0-SNAPSHOT\*.jar` 的时间戳。**
+  纪律（改了任一兄弟模块先 `install` 再 run；`java -jar` 只在 `package` 时生成）与可用命令、
+  含**为何不能写 `-pl aiwarden-start -am spring-boot:run` 的三种死法**，唯一正文见
+  [`docs/dev/troubleshooting.md`](docs/dev/troubleshooting.md) 第 4 条。
+- **本机环境类症状不在本节，判据与处置的唯一正文见 [`docs/dev/troubleshooting.md`](docs/dev/troubleshooting.md)**。
+  四条最容易被误判成「代码 / 装配问题」的现象，认症状即可（正文各自展开）：
+  ① **B 端评测报告页在本地开发库必为 404**（`t_eval_report` 由门禁测试写进 Testcontainers 的临时库，容器即销毁）——
+  先查表行数，别怀疑路由；路由存在性用「不带身份头应返回 400」证明。
+  ② **`Connection to localhost:5432 refused`** = 库没起；异常链会伪装成 `flywayInitializer` 装配故障，
+  真因在链最底部的 TCP 层；`28P01` 才是凭据错，`08001` 两种都会有、别拿它判因。
+  ③ **Kafka 在宿主机 9092「连不上但容器全部 healthy」** = Windows 把 9092 划进了保留端口区间，
+  宿主机不允许 bind → **Docker 的发布不 bind 也不报错**；表现是 outbox 卡 `PENDING`、摄入不完成、用量看板恒空。
+  本仓库走 `kafka-proxy` → **29092** + profile `local` 绕行（Linux / CI 不需要）。
+  ④ **`Port 8080 was already in use`** = 上一次启动的进程没退（IDE 的 Stop 偶发不回收子进程），
+  且残留进程还跑着旧 profile，于是「刷 Kafka 连不上」与「端口占用」两个症状同源——先杀旧实例再怀疑配置。
 - **前端把「原始对象」的 mutation 打在响应式代理之外：数据变了但不重渲染（2026-10-10 实测，靠真实浏览器定位）**：
   `ChatView` 原写法 `const turn = newTurn(); messages.value.push(turn)` ——
   `push(raw)` 之后**模板渲染读的是 Vue 包出来的代理**，而局部变量 `turn` 仍指向**原始对象**；
@@ -231,5 +253,6 @@
 
 ## 5. 状态
 
-> **见 [docs/STATUS.md](docs/STATUS.md)**——阶段 / 测试数 / 已知边界 / 下一步 / 公开范围都在那里（**易过期**，
-> 与本文件「只增不减的坑清单」性质相反，故拆出）。阶段推进时改它，并按 §2 同步 PRD / README / ADR / 06。
+> **见 [docs/STATUS.md](docs/STATUS.md)**——阶段 / 测试数 / **已验证的实测数字（§2 是它们的唯一落点）** /
+> 已知边界 / 下一步 / 公开范围都在那里（**易过期**，与本文件「只增不减的坑清单」性质相反，故拆出）。
+> 阶段推进时按 §2 的动作序列改它；`README.md` 第一屏的结论表是它的对外投影。

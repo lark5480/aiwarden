@@ -85,7 +85,7 @@
   因为**测试全绿不等于应用能启动**（本轮实测：装配模块的 test scope 依赖把运行期 Redis 客户端挤掉，
   112 个测试全绿而 `java -jar` 直接失败）。机制、判据与同类「装配面/运行面脱钩」坑见 [`AGENTS.md`](../AGENTS.md) §4。
 - 本机 Testcontainers 偶发 npipe 抖动的复现命令见 [`AGENTS.md`](../AGENTS.md) §4（环境类处置另见
-  [`docs/dev/troubleshooting.md`](dev/troubleshooting.md) 第 6 条）；CI（Linux）不受影响。
+  [`docs/dev/troubleshooting.md`](dev/troubleshooting.md) 第 7 条）；CI（Linux）不受影响。
 - GitHub Actions 已在 push(main) / PR 上触发；**CI 结果以流水线为准**——本开发环境无法直连 github.com
   （`web_fetch` 解析到非公网 IP 被拒），仓库内不复制 CI 结论。
 - **治理税四项与评测门禁的具体数值**：见上面「结论表」，以及评测门禁的原始输出行（上面第 2 条）——

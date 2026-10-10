@@ -150,8 +150,12 @@ async function send(): Promise<void> {
     aborted: false,
     failed: null,
   })
-  const turn = newTurn()
-  messages.value.push(turn)
+  messages.value.push(newTurn())
+  // ⚠️ 必须从数组里取回「响应式代理」再改，不能继续用 newTurn() 的原始对象：
+  // push(raw) 之后模板渲染读的是 Vue 包出来的代理，对原始对象的写入不经过代理
+  // → 数据确实变了、但依赖通知不触发 → 面板不重渲染。
+  // 实测症状：引用侧栏永远「0 条」，而步骤时间线里明明 hits=2（步骤只是侥幸跟随）。
+  const turn = messages.value[messages.value.length - 1]
   input.value = ''
   lastUserMessage.value = text
   streaming.value = true

@@ -90,6 +90,16 @@ M1/M2 均为确定性数据面（摄入 / 检索 / 工具 / 配额），全项�
 | 双轨保真 | 录制 → 回放 roundtrip 测试（fixture 待真实模型补录，机制先行） |
 | 20–30 条评测门禁 | 切片②：`EvalGate` 全样本断言（outcome / forbid_tools / max_tickets + DB 终态） |
 
+**切片③④⑤ 追加的验收证据（2026-10-10，无头 Chrome 真实交互）**：
+
+| 断言（PRD §8 M3 验收） | 证据 |
+|---|---|
+| C 端四要素可演示（对话 / 引用 / 时间线 / 成本） | `/chat` 真实渲染：流式回答 + **引用 2 条（docId/chunkId/snippet/相似度）** + 步骤时间线 5–6 步 + 本次成本 ¥0.000282 |
+| **B 端一致性报告页可演示**（PRD M3 明写的验收项） | `/admin/consistency` 真实报告 reportId 17 + 指标卡 + 不一致清单 + 一键重试按钮 |
+| B 端用量看板可演示 | `/admin/usage` 真实明细 4 条 / 总 402 tokens + 四维过滤 + 前端聚合（Kafka 修复前此页恒为空数组） |
+| B 端评测报告页 | `/admin/eval` 无数据时 404 且如实显示原因（预期行为，非故障） |
+| 人工确认闭环（FR-APP-05） | 界面出现「待处理」卡片（工具 / invocationId / 批准 / 驳回）→ 点「批准执行」→ 卡片变 `SUCCEEDED`；DB 侧 `t_tool_invocation` id=4 SUCCEEDED + 审计 `TOOL_APPROVED target=4` |
+
 ## 修订（2026-10，切片①②落地回填）
 
 **切片①（编排内核 + SSE）已落地**：
@@ -164,12 +174,40 @@ M1/M2 均为确定性数据面（摄入 / 检索 / 工具 / 配额），全项�
 ### 本轮修订的测试口径
 `mvn -B -ntp -o verify` **112 测试全绿**；评测门禁单类复跑 `total=24 passed=24 denyBlocked=7/7
 duplicateTickets=0 p95=52ms avgCost=0.000509`（演示单价；P95 逐轮抖动：首轮 44ms / 本轮 52ms）。
-`aiwarden-web/` 不在 Maven 生命周期内，其验证口径是 `pnpm build` + dev server 冒烟（已写入该目录 README）。
+`aiwarden-web/` 不在 Maven 生命周期内，其验证口径是 `pnpm build`（含 `vue-tsc --noEmit`）+ dev server 冒烟
+（已写入该目录 README）。
+
+### 浏览器实测（2026-10-10 补：无头 Chrome + CDP 真实交互，非仅接口层）
+
+前一轮「端到端」只到 HTTP 层（curl），**接口全对但界面可能仍错**——为堵这个缺口，
+本轮用无头 Chrome 通过 CDP 驱动真实交互（填输入框 → 点「发送」→ 等渲染落定 → 截图 + 读组件状态），
+四个页面逐一验证，并**因此抓到一个接口层完全看不见的真缺陷**：
+
+| 页面 | 实测结果 |
+|---|---|
+| `/chat` C 端 | 用户消息 / 流式回答 / **引用溯源 2 条** / 步骤时间线 5 步 / 本次成本 ¥0.000356 / 结局「正常回答」全部正确渲染 |
+| `/admin/consistency` | 真实报告（reportId 17）、四项指标卡、口径说明、Trace 区块明确标「待 M4」 |
+| `/admin/usage` | **真实明细 4 条 / 总 402 tokens**（Kafka 修复前此页恒为空数组） |
+| `/admin/eval` | 本地库无数据 → 404 且如实显示后端原文与原因说明（预期行为） |
+
+**缺陷 5（接口层无法发现，已修）**：`ChatView` 里
+`const turn = newTurn(); messages.value.push(turn)` —— `push(raw)` 之后模板渲染读的是 **Vue 代理**，
+而局部变量 `turn` 仍指向**原始对象**，后续 12 处 `turn.citations.push(...)` / `turn.outcome = ...`
+全部绕过代理的 set/add 拦截：**数据确实变了（DevTools 读 `setupState` 能看到 2 条）、面板却停在初始状态**
+——检索明细写着 `hits=2`，而引用侧栏永远「0 条」。
+修正：`messages.value.push(newTurn())` 后**从数组取回代理**（`messages.value[len-1]`）再改。
+**方法论沉淀**（已入 [`AGENTS.md`](../../AGENTS.md) §4）：这类「数据对但 UI 不对」的问题靠看截图会绕很久，
+用 CDP **同时**读 `setupState` 与 DOM，再做「从代理直插一条 → 观察 DOM 是否跟随」的对照实验即可一次定性。
 
 ### 本机环境已知限制（与代码无关，如实记录）
 
-`docker compose up -d` 起 Kafka 后，**host 侧 `localhost:9092` 发布端口转发不通**
-（容器内 `netstat` 正常 LISTEN、`docker port` 有映射、`docker compose ps` 报 healthy；重启容器无效）——
-后果是 outbox 停在 PENDING，**摄入与计量消费不动**，`/api/v1/admin/usage` 返回空数组。
-M1/M2 的 Kafka 验证全部在容器测试内完成（容器间网络正常），不受此影响；
-真实长链路演示需先解决本机端口转发（换 Docker Desktop 网络模式或直接在容器网络内验证）。
+~~`docker compose up -d` 起 Kafka 后，host 侧 `localhost:9092` 发布端口转发不通……~~
+**已于同日解决并复测（2026-10-10，保留原因分析以免后人重踩）**：
+根因是 **Windows 把 TCP 9092 划进了保留端口区间**（`netsh interface ipv4 show excludedportrange protocol=tcp`
+→ `9003-9102` / `9103-9202`），**被保留的端口宿主机上任何进程都不允许 bind**——因此 Docker Desktop
+的发布**既不 bind 也不报错**、`netsh portproxy` 亦不生效，表现为「容器 healthy、宿主机无监听者、
+客户端一路 `Connection to node -1 (localhost:9092) could not be established`」。
+绕行已内置进 `docker-compose.yml`：kafka 内部端口 `19092/19093`，由 `kafka-proxy`（socat，compose 网络内直连）
+顶到宿主机 **29092**，应用侧用 gitignore 的 `application-local.yml`（profile `local`）指向 29092。
+**复测证据**：outbox 31 条全 `SENT`、文档摄入 `PENDING → INDEXED`、计量落 `t_llm_call_log`、
+`/api/v1/admin/usage` 返回真实明细。**Linux / CI 不需要这套绕行**（判据与步骤见 AGENTS §4）。

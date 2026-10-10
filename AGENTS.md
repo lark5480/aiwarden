@@ -62,9 +62,9 @@
 
 ## 4. 已知的坑与约定（随代码生长）
 
-**本节现有十七条，都是实测得来、且不翻代码发现不了的。**
+**本节现有十八条，都是实测得来、且不翻代码发现不了的。**
 
-> **先记一条可迁移的判断规则**：下面十七条里有**八条**共享同一个失效形态——**不报错、只是静默不生效**：
+> **先记一条可迁移的判断规则**：下面十八条里有**八条**共享同一个失效形态——**不报错、只是静默不生效**：
 > - **名字写错**：`-betaNN` 版本后缀、Jackson 属性名少一个连字符、`flyway-core` 与 `spring-boot-starter-flyway` 的区别、
 >   Micrometer 导出时剥掉 Gauge 的 `_total` 后缀；
 > - **依赖被挤掉**：同名依赖在装配模块以更近的 test scope 重复声明，运行期依赖静默消失；
@@ -155,8 +155,10 @@
   ③ **在 `aiwarden-start/` 目录里跑 `-am` 也无效**——Maven 只有「从根跑的聚合构建」才有完整 reactor，
   在子模块目录执行只看到它自己，`-am` 无兄弟可加。
   **可用写法**（本项目实测通过，app 正常 `Started AiwardenApplication`）：
-  `mvn -B -ntp -DskipTests install`（一次，改了兄弟模块后重跑）→ `mvn -B -ntp -pl aiwarden-start spring-boot:run`
-  （`run` 会现场编译该模块，改 start 自身代码不必重 install）；
+  `mvn -B -ntp -DskipTests install`（一次，改了兄弟模块后重跑）→
+  `mvn -B -ntp -pl aiwarden-start spring-boot:run -Dspring-boot.run.profiles=local`
+  （`run` 会现场编译该模块，改 start 自身代码不必重 install；**`local` profile 的理由见本节末条 Kafka 端口**，
+  Linux / CI 上可省略）；
   或完全绕开 plugin：`mvn -pl aiwarden-start -am -DskipTests package` + `java -jar aiwarden-start/target/*.jar`。
   **另注**：本机 `mvn install` **不能加 `-o`**——`maven-install-plugin` 自身的依赖未缓存，离线会
   `PluginResolutionException`（`verify` 可以离线，`install` 不行）。
@@ -174,6 +176,24 @@
   **判据：先 `docker compose ps` 看 postgres 是否 `Up (healthy)`，再看 `Test-NetConnection localhost -Port 5432`。**
   已给 compose 四个服务加 `restart: unless-stopped`，避免 Docker Desktop / 机器重启后「昨天还好今天炸」；
   **别在收尾时无脑 `docker compose stop`——IDE 启动依赖它常驻。**
+- **Kafka 在宿主机 9092「连不上但容器一切正常」，根因是 Windows 保留端口区间（2026-10-10 实测定位）**：
+  症状是后端日志每秒刷 `Connection to node -1 (localhost:9092) could not be established`，
+  outbox 全部卡 `PENDING` → **文档摄入永不完成、计量不落库、用量看板恒空**；
+  而 `docker port` 显示映射存在、容器内 LISTEN 正常、`docker compose ps` 报 healthy。
+  **真因**：`netsh interface ipv4 show excludedportrange protocol=tcp` 显示本机 `9003-9102` / `9103-9202`
+  被保留（Hyper-V/WSL 动态端口段），**9092 落在里面——被保留的端口宿主机上任何进程都不允许 bind**，
+  于是 Docker Desktop 的发布**不 bind 也不报错**，`netsh interface portproxy` 加了规则同样不监听。
+  **判据（照顺序做）**：① `docker compose ps` 看 kafka 是否 healthy；② `Get-NetTCPConnection -LocalPort <port>`
+  ——**若「容器内 LISTEN 正常但宿主机无监听者」，就是保留端口问题，不是代码也不是 Docker 故障**；
+  ③ `netsh interface ipv4 show excludedportrange protocol=tcp` 确认端口是否落在区间内。
+  **本项目绕行**（已在 `docker-compose.yml` 内置）：kafka 改内部端口 `19092/19093`，
+  由 `kafka-proxy`（`alpine/socat`，compose 网络内直连 kafka，绕开宿主机转发层）把 Kafka 顶到宿主机
+  **29092**（已确认未被保留），`KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://localhost:29092`；
+  应用侧靠 gitignore 的 `aiwarden-start/src/main/resources/application-local.yml`（激活 profile `local`）
+  把 `spring.kafka.bootstrap-servers` 指到 `localhost:29092`。**Linux / CI 不需要这些**（把 ports 加回 kafka
+  并删掉 kafka-proxy，且不激活 `local`）。
+  **注意**：`socat` 代理被强杀（如 `Stop-Process -Force`）后可能不自动恢复，重启 `kafka-proxy` 即可
+  （已加 `restart: unless-stopped`，正常 Docker 生命周期会自愈）。
 
 ---
 

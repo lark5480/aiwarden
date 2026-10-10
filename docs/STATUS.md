@@ -72,9 +72,14 @@
   **口径统一留待真实鉴权接入**。详见 [ADR-012 修订段](adr/ADR-012-chat-orchestration-and-eval.md)缺陷 4。
 - **前端不在 Maven 生命周期内**：`aiwarden-web/` 是独立 pnpm 工程（**不进 `mvn verify`、不计入测试数**），
   验证口径是 `pnpm build`（含 `vue-tsc --noEmit`）+ dev server 冒烟——**CI 绿不等于前端可构建**。
-- **本机 Kafka 端口转发不通**（`docker compose` 起 Kafka 后 host 侧 `localhost:9092` 拒绝连接，
-  容器内正常）：outbox 停 PENDING、摄入与计量消费不动、用量明细为空。M1/M2 的 Kafka 验证在容器测试内完成，
-  不受影响；真实长链路演示前需先解决本机端口转发。
+- **本机 Kafka 端口问题已解决（2026-10-10）**：Windows 把 TCP 9092 划进了保留端口区间
+  （`netsh interface ipv4 show excludedportrange protocol=tcp` → 9003-9102），宿主机无法 bind，
+  导致 outbox 卡 PENDING、摄入与计量停摆。已在 `docker-compose.yml` 内置绕行
+  （kafka 内部 19092 + `kafka-proxy` 顶到宿主机 **29092**），应用侧用 gitignore 的
+  `application-local.yml`（profile `local`）把 `bootstrap-servers` 指向 29092。
+  **本机启动后端需激活 profile `local`**（IDE 运行配置或 `-Dspring-boot.run.profiles=local`）；
+  Linux / CI 不需要。实测已全链路打通：outbox 全 SENT、文档摄入 INDEXED、计量落 `t_llm_call_log`、
+  用量接口返回真实明细。详见 [`AGENTS.md`](../AGENTS.md) §4 末条与 [`README.md`](../README.md)。
 - **未做**：P4b（预算降级，裁决 19 砍除）、P5（断点续跑，M4）、用户鉴权（M3 身份头为认证层输出的模拟）；
   **`t_llm_call_log.cost` 回填与 OTel span 归 M4**。
 

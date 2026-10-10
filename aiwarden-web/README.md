@@ -31,7 +31,8 @@ docker compose up -d
 mvn -B -ntp -DskipTests install
 
 # 3) Spring Boot 应用（aiwarden-start，缺省端口 8080）
-mvn -B -ntp -pl aiwarden-start spring-boot:run
+#    Windows 本机需带 local profile（Kafka 端口被 Windows 保留区间占用的绕行，见根 README「Kafka 与 Windows 保留端口」）
+mvn -B -ntp -pl aiwarden-start spring-boot:run -Dspring-boot.run.profiles=local
 ```
 
 > ⚠️ **不要写成 `mvn -pl aiwarden-start -am spring-boot:run`**：`-am` 会把根聚合工程也放进 reactor，

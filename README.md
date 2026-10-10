@@ -126,7 +126,8 @@ docker exec aiwarden-postgres psql -U aiwarden -d aiwarden \
 mvn -B -ntp -DskipTests install
 
 # 4) 启动后端（port 8080）——`spring-boot:run` 会现场编译 aiwarden-start，改代码不必重新 install
-mvn -B -ntp -pl aiwarden-start spring-boot:run
+#    Windows 本机需带 local profile（原因见下方「Kafka 与 Windows 保留端口」）
+mvn -B -ntp -pl aiwarden-start spring-boot:run -Dspring-boot.run.profiles=local
 
 # 5) 前端（port 5173；/api 与 /actuator 经 Vite 代理到 8080）
 cd aiwarden-web && pnpm install && pnpm dev
@@ -158,6 +159,27 @@ cd aiwarden-web && pnpm install && pnpm dev
 > 看起来像装配 / 依赖问题，**真正原因在异常链最底部**：`java.net.ConnectException: Connection refused: getsockopt`
 > ——TCP 层就连不上（**不是**账号密码错，那种会是 `28P01` / `password authentication failed`）。
 > 判据：`Test-NetConnection localhost -Port 5432`，或 `docker compose ps`。
+>
+> ### Kafka 与 Windows 保留端口（**会静默失效，务必看**）
+> 本机 Windows 把 **TCP 9092 划进了「保留端口区间」**（`netsh interface ipv4 show excludedportrange protocol=tcp`
+> → `9003-9102` / `9103-9202`）。**被保留的端口，宿主机上任何进程都不允许 bind**，于是：
+> Docker Desktop 对 `9092:9092` 的发布**既不 bind 也不报错**（`docker port` 显示映射存在、容器内 LISTEN 正常、
+> `docker compose ps` 报 healthy，但宿主机没有监听者），`netsh portproxy` 也加不上。
+> **症状**：后端日志每秒刷 `Connection to node -1 (localhost:9092) could not be established`，
+> outbox 全部卡 PENDING → 文档摄入不完成、计量不落库、**用量看板恒为空**。**与项目代码无关。**
+>
+> **本仓库的绕行**（已在 `docker-compose.yml` 内置）：`kafka` 服务改在内部端口监听，
+> 由 `kafka-proxy`（网络内 socat）把 Kafka 顶到宿主机 **29092**（已确认不在任何保留区间），
+> Kafka 的 `advertised.listeners` 也相应改为 `localhost:29092`。
+> **因此本机启动应用时需激活 Spring profile `local`**（读取被 gitignore 的
+> `aiwarden-start/src/main/resources/application-local.yml`，其中把 `spring.kafka.bootstrap-servers`
+> 指向 `localhost:29092`）：
+> - IDE：运行配置里加 profile `local`（或 VM option `-Dspring.profiles.active=local`）；
+> - 命令行：`mvn -pl aiwarden-start spring-boot:run -Dspring-boot.run.profiles=local`。
+>
+> **Linux / CI 没有这个问题**：那边把 `ports: ["9092:9092"]` 加回 `kafka` 服务、删掉 `kafka-proxy`，
+> 并且**不要**激活 `local` profile 即可（`application-local.yml` 不会被提交，也不影响 CI）。
+> 自检：`Test-NetConnection localhost -Port 29092`（或 9092）应为 True。
 >
 > **身份头**：后端所有接口要求 `X-Aiwarden-Tenant-Id` / `X-Aiwarden-User-Id`（缺失即 400，**不回落默认租户**），
 > org 头可选。前端在页头「身份」抽屉里配置（存 `localStorage`）。细节见 [`aiwarden-web/README.md`](aiwarden-web/README.md)。

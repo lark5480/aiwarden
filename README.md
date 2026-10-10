@@ -145,6 +145,20 @@ cd aiwarden-web && pnpm install && pnpm dev
 > **等效替代（不需要 install）**：`mvn -B -ntp -pl aiwarden-start -am -DskipTests package`
 > 然后 `java -jar aiwarden-start/target/aiwarden-start-0.1.0-SNAPSHOT.jar`（改代码后需重新 package）。
 >
+> ### 用 IDE 启动（IntelliJ / VS Code 等）
+> 直接运行 `com.aiwarden.start.AiwardenApplication#main` 即可，**不需要上面那两步 install/run**——
+> IDE 会用自身配置的模块 classpath 编译并启动，天然绕开了 CLI 的 reactor 问题。
+> **唯一的硬前提是基础设施必须先起来**：
+> ```bash
+> docker compose up -d          # ← 忘了这步，应用启动必失败
+> docker compose ps             # 确认 postgres 是 Up (healthy)
+> ```
+> **高频误读：`Connection to localhost:5432 refused` 不是代码问题，是数据库没起。**
+> 这个报错会包成一大段 `UnsatisfiedDependencyException → flywayInitializer → JdbcTemplate` 的 bean 链，
+> 看起来像装配 / 依赖问题，**真正原因在异常链最底部**：`java.net.ConnectException: Connection refused: getsockopt`
+> ——TCP 层就连不上（**不是**账号密码错，那种会是 `28P01` / `password authentication failed`）。
+> 判据：`Test-NetConnection localhost -Port 5432`，或 `docker compose ps`。
+>
 > **身份头**：后端所有接口要求 `X-Aiwarden-Tenant-Id` / `X-Aiwarden-User-Id`（缺失即 400，**不回落默认租户**），
 > org 头可选。前端在页头「身份」抽屉里配置（存 `localStorage`）。细节见 [`aiwarden-web/README.md`](aiwarden-web/README.md)。
 >

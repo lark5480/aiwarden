@@ -62,9 +62,9 @@
 
 ## 4. 已知的坑与约定（随代码生长）
 
-**本节现有十六条，都是实测得来、且不翻代码发现不了的。**
+**本节现有十七条，都是实测得来、且不翻代码发现不了的。**
 
-> **先记一条可迁移的判断规则**：下面十六条里有**八条**共享同一个失效形态——**不报错、只是静默不生效**：
+> **先记一条可迁移的判断规则**：下面十七条里有**八条**共享同一个失效形态——**不报错、只是静默不生效**：
 > - **名字写错**：`-betaNN` 版本后缀、Jackson 属性名少一个连字符、`flyway-core` 与 `spring-boot-starter-flyway` 的区别、
 >   Micrometer 导出时剥掉 Gauge 的 `_total` 后缀；
 > - **依赖被挤掉**：同名依赖在装配模块以更近的 test scope 重复声明，运行期依赖静默消失；
@@ -165,6 +165,15 @@
   `GET /api/v1/admin/eval/report` 必然返回 404 + `{"detail":"暂无评测报告…"}`。
   **判据：看该接口 404 时先查 `t_eval_report` 行数，别去怀疑路由或 controller**（路由存在性可用
   「不带身份头应返回 400」来证明——400 说明请求已到我们的 controller）。
+- **`Connection to localhost:5432 refused` 是「基础设施没起」，不是代码 / 装配问题（2026-10-10 实测）**：
+  应用启动时要连库跑 Flyway 迁移，容器不在就抛一长串 bean 链
+  （`UnsatisfiedDependencyException` → `flywayInitializer` → `jdbcTemplate`），**看起来像依赖装配故障**；
+  但**根因在异常链最底部的 `java.net.ConnectException: Connection refused: getsockopt`**——TCP 层不可达。
+  区分口径：**拒绝连接（TCP refused）= 库没起**；`28P01 / password authentication failed` = 库起了但凭据错；
+  `08001` 只是 JDBC 的连接失败 SQLState，两种都会有，别拿它判因。
+  **判据：先 `docker compose ps` 看 postgres 是否 `Up (healthy)`，再看 `Test-NetConnection localhost -Port 5432`。**
+  已给 compose 四个服务加 `restart: unless-stopped`，避免 Docker Desktop / 机器重启后「昨天还好今天炸」；
+  **别在收尾时无脑 `docker compose stop`——IDE 启动依赖它常驻。**
 
 ---
 

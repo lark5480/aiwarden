@@ -38,6 +38,9 @@ mvn -B -ntp -pl aiwarden-start spring-boot:run
 > 而 reactor 里每个模块都会执行该 goal → 根 pom 无 main class → 报 `Unable to find a suitable main class`；
 > 若去掉 `-am` 又会因兄弟模块不在本地仓库报 `Could not resolve dependencies`。
 > 多模块工程的 `spring-boot:run` 是「先 install，再单模块 run」两步。理由与替代方案见根 [`README.md`](../README.md)「本地怎么跑起来」。
+>
+> **用 IDE 启动更省事**：直接跑 `com.aiwarden.start.AiwardenApplication#main`（IDE 自带模块 classpath，无需 install）。
+> 但**必须先 `docker compose up -d`**——否则报 `Connection to localhost:5432 refused`（那是数据库没起，不是代码问题）。
 
 后端就绪判断：`GET http://localhost:8080/actuator/health`。
 

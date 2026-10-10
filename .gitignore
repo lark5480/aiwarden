@@ -18,7 +18,8 @@ data/
 pgdata/
 
 # ---- IDE / editor ----
-.vscode/
+.vscode/*
+!.vscode/launch.json
 .idea/
 *.iml
 

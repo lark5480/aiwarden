@@ -146,9 +146,27 @@ cd aiwarden-web && pnpm install && pnpm dev
 > **等效替代（不需要 install）**：`mvn -B -ntp -pl aiwarden-start -am -DskipTests package`
 > 然后 `java -jar aiwarden-start/target/aiwarden-start-0.1.0-SNAPSHOT.jar`（改代码后需重新 package）。
 >
-> ### 用 IDE 启动（IntelliJ / VS Code 等）
+> ### 用 IDE 启动（IntelliJ / VS Code / Qoder 等）
 > 直接运行 `com.aiwarden.start.AiwardenApplication#main` 即可，**不需要上面那两步 install/run**——
 > IDE 会用自身配置的模块 classpath 编译并启动，天然绕开了 CLI 的 reactor 问题。
+> **两个硬前提**：
+> 1. 基础设施必须已起（见下）；
+> 2. **Windows 本机必须加 profile `local`**（Kafka 端口被 Windows 保留区间占用的绕行，见后文）。
+>
+> **仓库已带 VS Code / Qoder 的启动配置**：[`.vscode/launch.json`](.vscode/launch.json)——
+> 装上 "Extension Pack for Java" 后，在「运行和调试」里选
+> **「AIWarden 后端（aiwarden-start，profile=local）」** 直接 F5 即可（里面已设好
+> `spring.profiles.active=local`；文件里 `javaExec` 是本机 JDK 21 的实测路径，换机器请改成自己的）。
+> **IntelliJ**：Run/Debug Configurations → Spring Boot → Main class 选 `AiwardenApplication`，
+> 在 **Active profiles** 填 `local`（或 VM options 加 `-Dspring.profiles.active=local`）。
+>
+> **端口被占（`Web server failed to start. Port 8080 was already in use`）= 上一次启动的进程没退。**
+> 先停掉旧实例再启动，别直接再点一次运行：
+> ```powershell
+> Get-NetTCPConnection -LocalPort 8080 -State Listen | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force }
+> ```
+> 在 IDE 里就是点方块 Stop（IDE 的 Stop 偶尔不回收子进程，此时用上面这条命令兜底）。
+>
 > **唯一的硬前提是基础设施必须先起来**：
 > ```bash
 > docker compose up -d          # ← 忘了这步，应用启动必失败

@@ -62,9 +62,9 @@
 
 ## 4. 已知的坑与约定（随代码生长）
 
-**本节现有十八条，都是实测得来、且不翻代码发现不了的。**
+**本节现有十九条，都是实测得来、且不翻代码发现不了的。**
 
-> **先记一条可迁移的判断规则**：下面十八条里有**八条**共享同一个失效形态——**不报错、只是静默不生效**：
+> **先记一条可迁移的判断规则**：下面十九条里有**八条**共享同一个失效形态——**不报错、只是静默不生效**：
 > - **名字写错**：`-betaNN` 版本后缀、Jackson 属性名少一个连字符、`flyway-core` 与 `spring-boot-starter-flyway` 的区别、
 >   Micrometer 导出时剥掉 Gauge 的 `_total` 后缀；
 > - **依赖被挤掉**：同名依赖在装配模块以更近的 test scope 重复声明，运行期依赖静默消失；
@@ -194,6 +194,12 @@
   并删掉 kafka-proxy，且不激活 `local`）。
   **注意**：`socat` 代理被强杀（如 `Stop-Process -Force`）后可能不自动恢复，重启 `kafka-proxy` 即可
   （已加 `restart: unless-stopped`，正常 Docker 生命周期会自愈）。
+- **`Web server failed to start. Port 8080 was already in use` = 上一次启动的进程没退，不是配置冲突（2026-10-10 实测）**：
+  IDE 里再点一次「运行」不会自动停掉旧实例；IDE 的 Stop 按钮也偶发不回收子进程
+  （实测残留的 `java -cp ...spring-boot-4.1...` 进程一直占着 8080，且它跑的还是**旧 profile**，
+  于是表现为「日志一直刷 Kafka 连不上」+「再次启动报端口占用」两个症状同一个根因）。
+  **判据与处理**：`Get-NetTCPConnection -LocalPort 8080 -State Listen | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force }`
+  再启动。**推论：IDE 启动失败时先确认「没有旧实例还在跑」，再怀疑配置。**
 
 ---
 

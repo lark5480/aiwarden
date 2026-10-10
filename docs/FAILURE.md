@@ -73,8 +73,10 @@
 | 2026-10-07 实测 | 本机 Testcontainers 的 npipe 探测偶发失败，且删配置只对当次生效（策略会被写回缓存） | [`../AGENTS.md`](../AGENTS.md) §4 |
 | 2026-10-10 实测 | 本地开发库的评测报告页必为 404（`t_eval_report` 只存在于临时容器库） | [`dev/troubleshooting.md`](dev/troubleshooting.md) §5 |
 | 2026-10-10 实测 | 残留的旧实例进程占着 8080 且跑旧 profile，同时表现为「Kafka 连不上」和「端口占用」 | [`dev/troubleshooting.md`](dev/troubleshooting.md) §3 |
+| 2026-10-10 实测 | 前端只 bind 了 `[::1]:5173`，`127.0.0.1:5173` 被拒；`file://` 直开 `dist` 是纯白页——「什么都看不到」不等于前端坏了 | [`dev/troubleshooting.md`](dev/troubleshooting.md) §6 |
+| 2026-10-10 实测 | 一致性报告 37 份里不一致数**全为 0**（「清单为空」是正确空态却读起来像故障）；孤儿向量曲线需手动采样、且不累积历史 | [`dev/troubleshooting.md`](dev/troubleshooting.md) §7 |
 
 ---
 
-**当前覆盖**：A 4 条 · B 10 条 · C 12 条 · D 8 条 · E 4 条（共 38 条，M1–M3 已登记部分）。
+**当前覆盖**：A 4 条 · B 10 条 · C 12 条 · D 8 条 · E 6 条（共 40 条，M1–M3 已登记部分）。
 M4 收官时按 [`PRD.md`](PRD.md) §8.1 增补本期条目并逐条核对指针仍有效。

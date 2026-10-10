@@ -152,7 +152,56 @@ IntelliJ 在 Run/Debug Configuration 的 **Active profiles** 填 `local`）。
 
 ---
 
-## 6. IDE 启动通道（`.vscode/launch.json`）与它的 `JAVA_HOME` 前置
+## 6. 前端页面「打不开 / 全白」：只有 `http://localhost:5173` 能开
+
+**实测（2026-10-10，本机 Vite 6.4.4 dev server）**：
+
+| 入口 | 结果 |
+|---|---|
+| `http://localhost:5173/admin/consistency` | ✅ 200 |
+| `http://127.0.0.1:5173/...` | ❌ **连接被拒** |
+| `http://localhost:8080/admin/...` | ❌ Whitelabel 404（后端**不托管前端**：任何模块都没有 `static/`，`/` 与 `/index.html` 全 404） |
+| 双击 `aiwarden-web/dist/index.html`（`file://`） | ❌ **纯白页**（实测 `document.body.innerText === ""`：`index.html` 用绝对路径 `/assets/...`，`file://` 下全部 404） |
+
+**真因（第一条）**：`vite.config.ts` 没设 `server.host`，Node 把 `localhost` 解析成 `::1`，于是 Vite
+**只 bind 了 `[::1]:5173`**；`Get-NetTCPConnection -LocalPort 5173` 会显示 `LocalAddress = ::1`，
+**IPv4 的 `127.0.0.1` 上根本没有监听者**。判据：`localhost` 能开而 `127.0.0.1` 被拒 → 就是这条，
+不是后端挂了、也不是前端构建坏了。
+
+**处置**：① 用 `http://localhost:5173`（最省事）；② 想让 IPv4 也能开，在 `vite.config.ts` 的 `server`
+里加 `host: '127.0.0.1'`（改完就**只能**用 `127.0.0.1` 访问了，`localhost` 会解析到 `::1` 再次落空）；
+③ 要验证 `dist` 产物，用 `pnpm preview`（vite 的 preview 继承 `server.proxy`，`/api` → 8080 仍通），
+**不要**用 `file://` 直接打开。
+
+**为什么容易误判成「前端 bug」**：这四个入口的失败形态完全不同（拒连 / 404 / 纯白），而**真正的页面问题**
+不会表现为纯白——身份头缺失或非法时，页面会渲染红色告警并附后端原文（实测：非法租户头 → 400 + 原文
+「租户标识不是合法数值，拒绝执行」）。**判据：能看到顶部 AIWarden 导航 = 前端 shell 正常，问题在数据或接口；
+连导航都没有 = 先查入口 URL。**
+
+---
+
+## 7. B 端页面「有数据却看不到内容」：先分清平台级空态与手动采样
+
+两条都在 2026-10-10 实测过，症状是「接口明明有数据，页面一片空」：
+
+**① 一致性报告**：`GET /api/v1/admin/consistency/report` 有 37+ 份报告并不等于有内容——
+`t_reconcile_report` 是**平台级表（无 tenant 维度）**，对账每 5 分钟自动写一条，实测
+**37 份报告里 `mismatch_count > 0` 的有 0 份**，最新几条 `detail_ref` 都是
+`{"staleDocuments":[],"orphanVectors":0,"stuckProcessing":0,...}`。
+所以「不一致清单为空：没有已删除文档的残留切片」是**正确空态，不是故障**。
+要看到非空清单只有制造一次不一致（软删文档后让残留留下）再等扫描 / 调 `POST /scan`。
+**另注**：该表无 tenant 列，`POST /repair` 是**清全租户残留**、不按租户过滤，多租户演示时别踩。
+（该接口要求**租户 + 主体双必填**，缺任一即 400——这条纪律的正文见
+[`docs/STATUS.md`](../STATUS.md) §3 裁决 22 条。）
+
+**② 孤儿向量曲线**：`aiwarden_vector_orphan` 是 Micrometer `Gauge`，**只有当前值、没有历史序列**，
+页面曲线是**本页轮询采样自绘**，且 `autoSample` **默认关闭**——所以刚打开时必然显示
+「还没有采样点：点『采样一次』或打开自动采样」。指标本身是好的（实测导出 `aiwarden_vector_orphan 0.0`，
+注意**导出名没有 `_total` 后缀**，前端两种名字都认）。**这条不是故障，是设计边界。**
+
+---
+
+## 8. IDE 启动通道（`.vscode/launch.json`）与它的 `JAVA_HOME` 前置
 
 **`.vscode/` 只放行 `launch.json` 一个文件**（`.gitignore` 里 `.vscode/*` + `!.vscode/launch.json`），
 进库的是**通用**配置：`javaExec` 写的是 **`${env:JAVA_HOME}/bin/java.exe`**，不含任何机器专属路径。
@@ -170,7 +219,7 @@ IntelliJ 在 Run/Debug Configuration 的 **Active profiles** 填 `local`）。
 
 ---
 
-## 7. 跑测试：Testcontainers 的 Docker 探测偶发失败
+## 9. 跑测试：Testcontainers 的 Docker 探测偶发失败
 
 `mvn -B -ntp verify` 需要 Docker（起真实 PostgreSQL / Kafka）。本机偶发
 `Could not find a valid Docker environment`，报错常见 `MalformedChunkCodingException (Bad chunk header)`，

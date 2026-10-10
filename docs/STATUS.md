@@ -85,7 +85,7 @@
   因为**测试全绿不等于应用能启动**（本轮实测：装配模块的 test scope 依赖把运行期 Redis 客户端挤掉，
   112 个测试全绿而 `java -jar` 直接失败）。机制、判据与同类「装配面/运行面脱钩」坑见 [`AGENTS.md`](../AGENTS.md) §4。
 - 本机 Testcontainers 偶发 npipe 抖动的复现命令见 [`AGENTS.md`](../AGENTS.md) §4（环境类处置另见
-  [`docs/dev/troubleshooting.md`](dev/troubleshooting.md) 第 7 条）；CI（Linux）不受影响。
+  [`docs/dev/troubleshooting.md`](dev/troubleshooting.md) 第 9 条）；CI（Linux）不受影响。
 - GitHub Actions 已在 push(main) / PR 上触发；**CI 结果以流水线为准**——本开发环境无法直连 github.com
   （`web_fetch` 解析到非公网 IP 被拒），仓库内不复制 CI 结论。
 - **治理税四项与评测门禁的具体数值**：见上面「结论表」，以及评测门禁的原始输出行（上面第 2 条）——
@@ -120,6 +120,12 @@
   此前前端实现了该链路、后端从不产出标记，**功能存在但不可达**（FR-APP-02 的「正文可点引用」演示中实际缺失）。
 - **前端不在 Maven 生命周期内**：`aiwarden-web/` 是独立 pnpm 工程（**不进 `mvn verify`、不计入测试数**），
   验证口径是 `pnpm build`（含 `vue-tsc --noEmit`）+ dev server 冒烟——**CI 绿不等于前端可构建**。
+- **两个 B 端页在新环境里「看起来是空的」，各有各的原因（2026-10-10 实测，别当成故障）**：
+  ① **评测报告**：`t_eval_report` 只由评测门禁写进 **Testcontainers 的临时库**，本地开发库为空 →
+  `/eval/report` 恒 404（要看数据得跑 `mvn verify` 读 `EVAL-SUMMARY`，或把实测值 INSERT 进本地库）；
+  ② **一致性报告**：报告行**每 5 分钟自动新增**（本机实测已有 37 份），但 `mismatch_count` 全为 0 ——
+  「不一致清单为空」是**正确空态**；孤儿向量曲线是**手动采样**自绘的，不点就永远是空的。
+  **判据与处置的唯一正文见 [`docs/dev/troubleshooting.md`](dev/troubleshooting.md) 第 5 / 7 条。**
 - **本机 Kafka 端口问题已解决（2026-10-10）**：Windows 把 TCP 9092 划进了保留端口区间，宿主机无法 bind，
   导致 outbox 卡 PENDING、摄入与计量停摆。绕行已内置进 `docker-compose.yml`
   （kafka 内部 19092 + `kafka-proxy` 顶到宿主机 **29092**），本机启动需激活 profile `local`，Linux / CI 不需要。

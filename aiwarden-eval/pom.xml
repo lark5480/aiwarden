@@ -13,4 +13,13 @@
     <artifactId>aiwarden-eval</artifactId>
     <name>aiwarden-eval</name>
     <description>评测门禁：越权样本 + 评测样本进 mvn verify（PRD §5.9）</description>
+
+    <dependencies>
+        <!-- 样本加载与报告序列化（SB4 应用层默认 Jackson 3：tools.jackson；AGENTS §4 约定）。
+             本模块保持纯逻辑：样本定义 + 断言引擎，全栈驱动在 aiwarden-start/src/test（ADR-012 决策 9） -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-jackson</artifactId>
+        </dependency>
+    </dependencies>
 </project>

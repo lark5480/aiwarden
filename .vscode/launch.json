@@ -1,0 +1,46 @@
+{
+  // VS Code / Qoder（VS Code 系）启动配置——需装 "Extension Pack for Java"。
+  //
+  // 三个字段缺一不可，缺了会报「Request type "undefined" is not supported」之类的怪错：
+  //   "type": "java"      → 交给 Java 调试器
+  //   "request": "launch" → **必填**（只有 launch / attach 两个合法值）
+  //   "name"              → 「运行和调试」下拉里显示的名字
+  //
+  // 关键点：`spring.profiles.active=local`。
+  // 本机 Windows 把 TCP 9092 划进了「保留端口区间」（9003-9102），宿主机无法 bind，
+  // 于是 docker-compose 里的 kafka 改在内部端口监听、由 kafka-proxy 顶到宿主机 29092；
+  // profile `local` 会读取被 gitignore 的 application-local.yml，
+  // 把 spring.kafka.bootstrap-servers 指到 localhost:29092。
+  //
+  // 不带这个 profile 的现象：应用能起来，但后端日志每秒刷
+  //   `Connection to node -1 (localhost:9092) could not be established`
+  // 且 outbox 全卡 PENDING → 文档摄入不完成、计量不落库、B 端用量看板恒空。
+  //
+  // Linux / CI 上删掉 args 里的 --spring.profiles.active=local 即可（那边 9092 直连可用）。
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "java",
+      "request": "launch",
+      "name": "AIWarden 后端（aiwarden-start，profile=local）",
+      // 本机 JDK 21 实测路径（java -version = 21.0.8）；换机器后改成自己的 JAVA_HOME
+      "javaExec": "E:\\Software\\openjdk-21.0.8\\bin\\java.exe",
+      "mainClass": "com.aiwarden.start.AiwardenApplication",
+      "projectName": "aiwarden-start",
+      "cwd": "${workspaceFolder}/aiwarden-start",
+      "console": "internalConsole",
+      "args": "--spring.profiles.active=local"
+    },
+    {
+      "type": "java",
+      "request": "launch",
+      "name": "AIWarden 后端（不带 local profile，Linux / CI 用）",
+      "javaExec": "E:\\Software\\openjdk-21.0.8\\bin\\java.exe",
+      "mainClass": "com.aiwarden.start.AiwardenApplication",
+      "projectName": "aiwarden-start",
+      "cwd": "${workspaceFolder}/aiwarden-start",
+      "console": "internalConsole",
+      "args": ""
+    }
+  ]
+}

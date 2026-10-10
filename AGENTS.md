@@ -62,10 +62,13 @@
 
 ## 4. 已知的坑与约定（随代码生长）
 
-**本节现有十二条，都是实测得来、且不翻代码发现不了的。**
+**本节现有二十条，都是实测得来、且不翻代码发现不了的。**
 
-> **先记一条可迁移的判断规则**：下面十二条里有**六条**共享同一个失效形态——**不报错、只是静默不生效**：
-> - **名字写错**：`-betaNN` 版本后缀、Jackson 属性名少一个连字符、`flyway-core` 与 `spring-boot-starter-flyway` 的区别；
+> **先记一条可迁移的判断规则**：下面二十条里有**九条**共享同一个失效形态——**不报错、只是静默不生效**：
+> - **名字写错**：`-betaNN` 版本后缀、Jackson 属性名少一个连字符、`flyway-core` 与 `spring-boot-starter-flyway` 的区别、
+>   Micrometer 导出时剥掉 Gauge 的 `_total` 后缀；
+> - **依赖被挤掉**：同名依赖在装配模块以更近的 test scope 重复声明，运行期依赖静默消失；
+> - **绕过了代理**：往响应式数组 push 原始对象后再改那个局部变量，数据变了但不重渲染；
 > - **装配歧义**：`CommonErrorHandler` 候选不唯一（工厂干脆谁都不用，自定义重试与 DLT 一起失效）；
 > - **语义设计**：幂等仲裁键混用「重复投递」与「合法状态流转」；
 > - **精度被吞**：JSON 小数默认落成 `Double`，高精度输入得到同一指纹（静默重放首次结果）；
@@ -125,6 +128,93 @@
   `java.lang.Error: Unresolved compilation problem` + `Failed to load ApplicationContext`（实测一次 24 个用例同时红，看起来像系统性崩溃）。`mvn -B -ntp -o clean test-compile` 后只剩 **1 个真实错误**。
   **判据：只要改的是别人也依赖的类型，就先 `clean`。** 另外 `-q` 会把编译错误藏起来，"无输出"不等于"编译通过"——要看退出码。
 - **MCP SDK 的 handler 执行线程与 Servlet 请求线程不同（切片④实测）**：ThreadLocal 的租户/主体上下文在 handler 里**不可用**（实测：调用被拒——「租户上下文缺失」）。身份必须经 transport 层显式携带：`contextExtractor(HttpServletRequest)` 把身份头写进 `McpTransportContext`，handler 里用 `exchange.transportContext()` 取出并 `TenantContext.callWithTenant` + `PrincipalContext.set/clear` 恢复——ADR-003 的显式 capture/apply 在第三方 SDK 线程边界上再次适用。
+- **Micrometer 导出时会剥掉 Gauge 名尾部的 `_total`（切片③④联调实测）**：代码里注册的是
+  `aiwarden_vector_orphan_total`（`ConsistencyReconciler` 的 `Gauge.builder`），而 `/actuator/prometheus`
+  实际导出的是 **`aiwarden_vector_orphan`**——`_total` 是 counter 的命名约定，Micrometer 统一剥离。
+  PRD / README / ADR 引用**注册名**（作为指标身份是对的），但**任何按名字抓取该指标的代码必须同时认两种形态**，
+  否则表现是「面板永远采不到点、不报错」——与 Jackson 属性名、`flyway-core` 同属「名字写错即静默失效」家族。
+  同类：`aiwarden_ingest_stuck_total` → 导出 `aiwarden_ingest_stuck`。
+  **判据：按指标名做字符串匹配前，先 `curl /actuator/prometheus | grep aiwarden_` 看真实导出名，不要照抄注册名。**
+- **同名依赖以不同 scope 在「装配模块」重复声明，会静默把运行期依赖降级掉（切片③④联调实测，本轮最隐蔽的一条）**：
+  `aiwarden-governance` 经 `spring-boot-starter-data-redis` 带来 compile scope 的 `lettuce-core`，而
+  `aiwarden-start` 又**直接**声明了 `lettuce-core` + `<scope>test</scope>`（M1 对照实验残留）。
+  Maven 的就近声明压过传递依赖 → **测试 JVM 拿得到 lettuce（`mvn verify` 112 个测试全绿），
+  打出的 fat jar 却没有 Redis 客户端** → 自动配置静默不装配 → `StringRedisTemplate` 无候选 bean →
+  `java -jar` 启动即失败，**而没有任何一个测试能发现它**。
+  **推论：测试分层（根 pom 的 surefire 全局属性）让「装配面」与「运行面」脱钩后，`mvn verify` 全绿
+  不再等于「应用能启动」。判据：凡改依赖（尤其 scope）后，必须做一次
+  `mvn -pl aiwarden-start -am package -DskipTests` + `java -jar` 的启动冒烟；
+  `dependency:tree` 也要看**最终装配模块**（`-pl aiwarden-start`），或直接核对 jar 的 `BOOT-INF/lib`。**
+- **多模块工程的 `spring-boot:run` 必须「先 install，再单模块 run」两步，不能一步到位（2026-10-10 实测）**：
+  根 pom 的 `spring-boot-maven-plugin` 只在 `aiwarden-start` 里有 `<goal>repackage</goal>`，
+  但 `spring-boot:run` 是**命令行 goal**——reactor 里**每个模块**都会执行它，于是三种写法各有死法：
+  ① `mvn -pl aiwarden-start -am spring-boot:run`（从根）→ `-am` 把根聚合工程与兄弟模块一并入 reactor，
+  根 pom 无 main class → `Unable to find a suitable main class`（**报错里是项目 `aiwarden`，不是 `aiwarden-start`**，
+  极易误读成「start 模块坏了吗」）；
+  ② `mvn -pl aiwarden-start spring-boot:run`（不带 `-am`）→ 兄弟模块 `0.1.0-SNAPSHOT` 不在本地仓库 →
+  `Could not resolve dependencies`；
+  ③ **在 `aiwarden-start/` 目录里跑 `-am` 也无效**——Maven 只有「从根跑的聚合构建」才有完整 reactor，
+  在子模块目录执行只看到它自己，`-am` 无兄弟可加。
+  **可用写法**（本项目实测通过，app 正常 `Started AiwardenApplication`）：
+  `mvn -B -ntp -DskipTests install`（一次，改了兄弟模块后重跑）→
+  `mvn -B -ntp -pl aiwarden-start spring-boot:run -Dspring-boot.run.profiles=local`
+  （`run` 会现场编译该模块，改 start 自身代码不必重 install；**`local` profile 的理由见本节末条 Kafka 端口**，
+  Linux / CI 上可省略）；
+  或完全绕开 plugin：`mvn -pl aiwarden-start -am -DskipTests package` + `java -jar aiwarden-start/target/*.jar`。
+  **另注**：本机 `mvn install` **不能加 `-o`**——`maven-install-plugin` 自身的依赖未缓存，离线会
+  `PluginResolutionException`（`verify` 可以离线，`install` 不行）。
+- **评测页在本地开发库必为 404，不是故障（2026-10-10 实测）**：`t_eval_report` 由评测门禁测试写入
+  **Testcontainers 的临时数据库**，测试结束容器销毁——本地 `docker compose` 起的那套库里永远是空的，
+  `GET /api/v1/admin/eval/report` 必然返回 404 + `{"detail":"暂无评测报告…"}`。
+  **判据：看该接口 404 时先查 `t_eval_report` 行数，别去怀疑路由或 controller**（路由存在性可用
+  「不带身份头应返回 400」来证明——400 说明请求已到我们的 controller）。
+- **`Connection to localhost:5432 refused` 是「基础设施没起」，不是代码 / 装配问题（2026-10-10 实测）**：
+  应用启动时要连库跑 Flyway 迁移，容器不在就抛一长串 bean 链
+  （`UnsatisfiedDependencyException` → `flywayInitializer` → `jdbcTemplate`），**看起来像依赖装配故障**；
+  但**根因在异常链最底部的 `java.net.ConnectException: Connection refused: getsockopt`**——TCP 层不可达。
+  区分口径：**拒绝连接（TCP refused）= 库没起**；`28P01 / password authentication failed` = 库起了但凭据错；
+  `08001` 只是 JDBC 的连接失败 SQLState，两种都会有，别拿它判因。
+  **判据：先 `docker compose ps` 看 postgres 是否 `Up (healthy)`，再看 `Test-NetConnection localhost -Port 5432`。**
+  已给 compose 四个服务加 `restart: unless-stopped`，避免 Docker Desktop / 机器重启后「昨天还好今天炸」；
+  **别在收尾时无脑 `docker compose stop`——IDE 启动依赖它常驻。**
+- **Kafka 在宿主机 9092「连不上但容器一切正常」，根因是 Windows 保留端口区间（2026-10-10 实测定位）**：
+  症状是后端日志每秒刷 `Connection to node -1 (localhost:9092) could not be established`，
+  outbox 全部卡 `PENDING` → **文档摄入永不完成、计量不落库、用量看板恒空**；
+  而 `docker port` 显示映射存在、容器内 LISTEN 正常、`docker compose ps` 报 healthy。
+  **真因**：`netsh interface ipv4 show excludedportrange protocol=tcp` 显示本机 `9003-9102` / `9103-9202`
+  被保留（Hyper-V/WSL 动态端口段），**9092 落在里面——被保留的端口宿主机上任何进程都不允许 bind**，
+  于是 Docker Desktop 的发布**不 bind 也不报错**，`netsh interface portproxy` 加了规则同样不监听。
+  **判据（照顺序做）**：① `docker compose ps` 看 kafka 是否 healthy；② `Get-NetTCPConnection -LocalPort <port>`
+  ——**若「容器内 LISTEN 正常但宿主机无监听者」，就是保留端口问题，不是代码也不是 Docker 故障**；
+  ③ `netsh interface ipv4 show excludedportrange protocol=tcp` 确认端口是否落在区间内。
+  **本项目绕行**（已在 `docker-compose.yml` 内置）：kafka 改内部端口 `19092/19093`，
+  由 `kafka-proxy`（`alpine/socat`，compose 网络内直连 kafka，绕开宿主机转发层）把 Kafka 顶到宿主机
+  **29092**（已确认未被保留），`KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://localhost:29092`；
+  应用侧靠 gitignore 的 `aiwarden-start/src/main/resources/application-local.yml`（激活 profile `local`）
+  把 `spring.kafka.bootstrap-servers` 指到 `localhost:29092`。**Linux / CI 不需要这些**（把 ports 加回 kafka
+  并删掉 kafka-proxy，且不激活 `local`）。
+  **注意**：`socat` 代理被强杀（如 `Stop-Process -Force`）后可能不自动恢复，重启 `kafka-proxy` 即可
+  （已加 `restart: unless-stopped`，正常 Docker 生命周期会自愈）。
+- **`Web server failed to start. Port 8080 was already in use` = 上一次启动的进程没退，不是配置冲突（2026-10-10 实测）**：
+  IDE 里再点一次「运行」不会自动停掉旧实例；IDE 的 Stop 按钮也偶发不回收子进程
+  （实测残留的 `java -cp ...spring-boot-4.1...` 进程一直占着 8080，且它跑的还是**旧 profile**，
+  于是表现为「日志一直刷 Kafka 连不上」+「再次启动报端口占用」两个症状同一个根因）。
+  **判据与处理**：`Get-NetTCPConnection -LocalPort 8080 -State Listen | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force }`
+  再启动。**推论：IDE 启动失败时先确认「没有旧实例还在跑」，再怀疑配置。**
+- **前端把「原始对象」的 mutation 打在响应式代理之外：数据变了但不重渲染（2026-10-10 实测，靠真实浏览器定位）**：
+  `ChatView` 原写法 `const turn = newTurn(); messages.value.push(turn)` ——
+  `push(raw)` 之后**模板渲染读的是 Vue 包出来的代理**，而局部变量 `turn` 仍指向**原始对象**；
+  后续所有 `turn.citations.push(...)` / `turn.outcome = ...` 都绕过了代理的 `set`/`add` 拦截，
+  **目标数据确实被改了（DevTools 读 setupState 能看到 2 条），但依赖通知不触发 → 面板停在初始状态**。
+  实测症状极具误导性：检索明细写着 `hits=2`、computed 读出来也是 2，**而引用侧栏永远「0 条」**；
+  步骤时间线因为同样的原因只是「侥幸跟随」（数组被整体替换式的操作才会通知）。
+  **修正**：`messages.value.push(newTurn())` 后**从数组里取回代理**再改：
+  `const turn = messages.value[messages.value.length - 1]`。
+  **判据：凡是「先造对象 → push 进响应式数组 → 再改这个局部变量」的写法都有此坑；
+  要么 push 后从数组取回，要么直接用 `reactive()` 造对象。**
+  **定位手法（可复用）**：这类「数据对但 UI 不对」的问题，靠截图/读 DOM 会绕很久——
+  用 CDP 在页面里**同时**读 `setupState` 与 DOM，并做「直插数据 → 观察 DOM 是否跟随」的对照实验即可一次定性
+  （本次对照：经代理直插立刻变 3 条，而业务路径的 push 不生效）。
 
 ---
 

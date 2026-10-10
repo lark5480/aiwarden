@@ -6,12 +6,18 @@
 # - 可观测性栈（OTel Collector / Tempo / Loki / Grafana / Prometheus）随其功能里程碑
 #   （M2 指标 / M4 Trace）合入本文件，避免现在起「起了不用的容器」；
 # - 应用侧连接配置见 aiwarden-start/src/main/resources/application.yml（默认指向本文件的服务）。
+#
+# ⚠️ restart: unless-stopped（2026-10-10 加）——应用启动时会连 localhost:5432 做 Flyway 迁移，
+#   库不在就直接 `Application run failed`（报错是 `Connection refused: getsockopt`，看起来像代码问题
+#   其实只是容器没起）。这条策略让容器在 Docker Desktop / 机器重启后自己回来，避免「昨天还好今天炸」。
+#   要真正停掉它们请显式 `docker compose down`（或 stop），`down` 之后需要重新 `up -d`。
 name: aiwarden
 
 services:
   postgres:
     image: pgvector/pgvector:pg16
     container_name: aiwarden-postgres
+    restart: unless-stopped
     environment:
       POSTGRES_DB: aiwarden
       POSTGRES_USER: aiwarden
@@ -29,6 +35,7 @@ services:
   redis:
     image: redis:7.4-alpine
     container_name: aiwarden-redis
+    restart: unless-stopped
     ports:
       - "6379:6379"
     healthcheck:
@@ -40,32 +47,62 @@ services:
   kafka:
     image: apache/kafka:4.0.0
     container_name: aiwarden-kafka
+    restart: unless-stopped
     environment:
       # 单节点 KRaft（controller + broker 同进程）；数据不挂卷——演示环境重启即清，更干净
+      #
+      # ⚠️ 为什么不再发布 9092，而用下面的 kafka-proxy 顶到 29092（2026-10-10 实测定位到根因）：
+      #    **本机 Windows 把 9092 划进了「保留端口区间」**——
+      #    `netsh interface ipv4 show excludedportrange protocol=tcp` 显示 9003–9102 与 9103–9202，
+      #    9092 落在其中。被保留的 TCP 端口**宿主机上任何进程都不允许 bind**，于是一连串「静默失效」：
+      #      · Docker Desktop 对 `9092:9092` 的发布**不 bind 也不报错**（`docker port` 仍显示映射存在、
+      #        容器内 LISTEN 正常、`docker compose ps` 报 healthy，但 host 侧 Get-NetTCPConnection 无监听者）；
+      #      · `netsh interface portproxy` 加了规则也不监听（同样被保留区间拦住）；
+      #      · 「另起容器发布 9092:9092」同样发布不出来。
+      #    应用侧症状：Kafka 客户端每秒刷 `Connection to node -1 (localhost:9092) could not be established`，
+      #    outbox 全部卡 PENDING → 文档摄入、计量消费停摆 → 用量看板恒空。**与项目代码无关。**
+      #    Kafka 容器本身完全正常（网络内可达），故绕行为「网络内 socat 转发 + 换一个未被保留的宿主机端口」。
+      #    29092 已确认不在任何排除区间。**应用侧需把 bootstrap-servers 指向 localhost:29092**——
+      #    本仓库用 gitignore 的 `aiwarden-start/src/main/resources/application-local.yml`（profile=local）承载，
+      #    见 README「本地怎么跑起来」；Linux / CI 无此问题，把 ports 加回本服务并删掉 kafka-proxy 即可。
       KAFKA_NODE_ID: 1
       KAFKA_PROCESS_ROLES: broker,controller
-      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
+      KAFKA_LISTENERS: PLAINTEXT://:19092,CONTROLLER://:19093
+      # 对外宣告：客户端据此回连（经 kafka-proxy 顶出的宿主机端口）
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:29092
       KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
-      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@localhost:9093
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@localhost:19093
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
-    ports:
-      - "9092:9092"
     healthcheck:
-      test: [ "CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 >/dev/null 2>&1" ]
+      test: [ "CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:19092 >/dev/null 2>&1" ]
       interval: 10s
       timeout: 10s
       retries: 12
       start_period: 30s
 
+  # 宿主机 Kafka 入口：localhost:29092 →（compose 网络内）kafka:19092
+  # 存在的唯一理由见上面 kafka 服务的注释（9092 被 Windows 保留区间占用，宿主机无法 bind）。
+  # socat 在网络内直连 kafka，完全绕开宿主机端口转发层。
+  kafka-proxy:
+    image: alpine/socat
+    container_name: aiwarden-kafka-proxy
+    restart: unless-stopped
+    command: tcp-listen:9092,fork,reuseaddr tcp-connect:kafka:19092
+    ports:
+      - "29092:9092"
+    depends_on:
+      kafka:
+        condition: service_healthy
+
   minio:
     image: minio/minio:RELEASE.2025-09-07T16-13-09Z
     container_name: aiwarden-minio
+    restart: unless-stopped
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: aiwarden

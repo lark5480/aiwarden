@@ -35,5 +35,12 @@ aiwarden:
       allowed: create_ticket,assign_ticket
     tool-invocation:
       processing-lease-seconds: 300   # PROCESSING 超租约可 CAS 重抢（「不确定可重试」）
+  # 问答编排（M3 / ADR-012）：模型通道缺省 mock（确定性替身；真实适配器接入后切换）
+  chat:
+    model: mock
+    top-k: 5
+    cost:
+      prompt-per-1k: 0.002        # 演示单价（元/千 token；真实价目表接入后替换）
+      completion-per-1k: 0.006
   # 配额/限流默认值均在组件 @Value 内（tool-token-cost=100、reserve-ttl=72h、限流 60s/1000 次）；
   # 未配置预算 = 不启用配额检查（ADR-010 决策 7）

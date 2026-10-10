@@ -2,7 +2,7 @@
 
 | 项 | 内容 |
 |---|---|
-| **文档版本** | v2.1（立项版 v1.0 + 2026-10-06 回写 13 条裁决，依据 [06-PRD修订裁决清单](research/06-PRD修订裁决清单.md)；2026-10-07 按 [ADR-007](adr/ADR-007-visibility-pushdown.md) 同步 §9 数据模型与 §11 风险 8；**2026-10-07 回写 M2 交付期裁决 14–18**——含 §5/§6/§8/§9/§12 的口径对齐；**2026-10-07 追加裁决 19**（P4b 砍除 / 用量看板自绘，§3/§5.6/§8/§10/§12 同步）） |
+| **文档版本** | v2.1（立项版 v1.0 + 2026-10-06 回写 13 条裁决，依据 [06-PRD修订裁决清单](research/06-PRD修订裁决清单.md)；2026-10-07 按 [ADR-007](adr/ADR-007-visibility-pushdown.md) 同步 §9 数据模型与 §11 风险 8；**2026-10-07 回写 M2 交付期裁决 14–18**——含 §5/§6/§8/§9/§12 的口径对齐；**2026-10-07 追加裁决 19**（P4b 砍除 / 用量看板自绘，§3/§5.6/§8/§10/§12 同步）；**2026-10-07 追加裁决 20 并落 [ADR-012](adr/ADR-012-chat-orchestration-and-eval.md)**（M3 编排与评测口径：Mock 替身 + 真实治理管道，§7.4/§9 同步）） |
 | **文档状态** | **需求规划已定稿；M0 / M1 / M2 已落地（MVP 达成：P1 / P2 / P3 / P4a 成立）**——多模块骨架、租户上下文四类边界、Flyway V1–V8、Outbox → Kafka → 幂等消费 → 对账 + 计量主链路、可见集四级下推 + 越权样本门禁、工具副作用治理（幂等/补偿/二态审批）、配额强一致（预扣减/幂等/对账）、审计留痕、MCP 最小版均已上线并有容器级测试覆盖（本地 `mvn -B -ntp verify` 102 测试全绿）。**M3 / M4 为增量**；实现过程中如与本文件冲突，以 `AGENTS.md` + 代码为准，并回写本文档 |
 | **上游文档** | 调研序列 01–02（**内部材料，未随仓库公开**，见根 README「公开范围」） · [03-竞品调研与饱和度分析](research/03-竞品调研与饱和度分析.md) · [04-选题论证与差异化声明](research/04-选题论证与差异化声明.md) · [05-独立验证与交叉质询报告](research/05-独立验证与交叉质询报告.md) · [06-PRD修订裁决清单](research/06-PRD修订裁决清单.md)（本版回写的唯一依据） |
 | **定位纪律** | 本项目自称「**治理层 / 组件**」，形态为**数据面治理组件**（在 ModelClient / VectorStore / ToolExecutor 三条 SPI 边界上做治理），**不自称「平台 / 中台 / 网关」**。理由见 [04 §4.4 风险 3](research/04-选题论证与差异化声明.md) 与 [06 号清单裁决 1](research/06-PRD修订裁决清单.md) |
@@ -357,7 +357,7 @@ aiwarden/
 
 ### 7.4 关键决策记录（ADR，正式落点为 [`docs/adr/`](adr/README.md)（一文件一 ADR，索引在同目录 README））
 
-> **ADR-001 ~ ADR-011 已落盘至 [`docs/adr/`](adr/README.md)**（含开工前的实测验证证据与实现期修订段）。本节保留结论摘要与指针，**冲突时以 ADR 为准**；并与 §7.3 ArchUnit 规则保持一致引用。
+> **ADR-001 ~ ADR-012 已落盘至 [`docs/adr/`](adr/README.md)**（含开工前的实测验证证据与实现期修订段）。本节保留结论摘要与指针，**冲突时以 ADR 为准**；并与 §7.3 ArchUnit 规则保持一致引用。
 
 **ADR-001 · 选 Spring Boot 4.1 + LangChain4j 1.20+（spring-boot4-starter 线）**
 - **结论**：底座 **SB 4.1.1**（OSS 支持至 2027-07-31；勿选 4.0——其 OSS 支持也将于 2026-12-31 EOL）；AI 层核心件 `dev.langchain4j:langchain4j:1.21.0` + starter `dev.langchain4j:langchain4j-spring-boot4-starter:1.21.0-beta31`（避开官方标记 do not use 的 1.19.1）。**两处版本号形态不同，必须分别书写。**
@@ -423,6 +423,7 @@ aiwarden/
 | `t_budget` | tenant_id, period, token_limit, cost_limit, degrade_policy | 预算与降级策略 |
 | `t_reconcile_report` | type, window, mismatch_count, detail_ref | 一致性/账单对账结论 |
 | `t_audit_log` | tenant_id, actor, action, target, result | 含越权尝试；**不可变由 DB 触发器保证**（拒 UPDATE/DELETE，ADR-008 决策 5） |
+| `t_eval_report` | run_at, total, passed, deny_blocked, duplicate_tickets, p95_latency_ms, avg_cost, detail | 评测门禁结论（M3 引入，[ADR-012](adr/ADR-012-chat-orchestration-and-eval.md)；FR-ADM-05 评测报告页数据源） |
 
 ---
 

@@ -1,6 +1,7 @@
 package com.aiwarden.agent.mcp;
 
 import com.aiwarden.agent.invocation.ToolInvocationService;
+import com.aiwarden.agent.tools.ToolCatalog;
 import com.aiwarden.agent.tools.ToolNameNormalizer;
 import com.aiwarden.agent.tools.ToolRegistry;
 import com.aiwarden.agent.tools.ToolWhitelist;
@@ -37,28 +38,6 @@ public class ToolMcpBridge {
     public static final String IDENTITY_USER = "userId";
     public static final String IDENTITY_ORG = "orgId";
 
-    private static final Map<String, String> TOOL_DESCRIPTIONS = Map.of(
-            "create_ticket", "创建工单（演示替身：零资金风险）。相同 businessKey 的重放不会创建第二张工单。",
-            "assign_ticket", "指派工单给受理组；assignee=unavailable 时模拟外部协作系统故障（用于补偿链路演示）。");
-
-    private static final Map<String, Map<String, Object>> TOOL_SCHEMAS = Map.of(
-            "create_ticket", Map.of(
-                    "type", "object",
-                    "properties", Map.of(
-                            "orderRef", Map.of("type", "string", "description", "来源单号（业务唯一）"),
-                            "title", Map.of("type", "string", "description", "工单标题"),
-                            "businessKey", Map.of("type", "string", "description", "调用幂等键（重放必须一致）"),
-                            "sessionId", Map.of("type", "string", "description", "会话标识（可选，默认 mcp）")),
-                    "required", List.of("orderRef", "title", "businessKey")),
-            "assign_ticket", Map.of(
-                    "type", "object",
-                    "properties", Map.of(
-                            "orderRef", Map.of("type", "string", "description", "来源单号"),
-                            "assignee", Map.of("type", "string", "description", "受理组（unavailable = 模拟外部故障）"),
-                            "businessKey", Map.of("type", "string", "description", "调用幂等键（重放必须一致）"),
-                            "sessionId", Map.of("type", "string", "description", "会话标识（可选，默认 mcp）")),
-                    "required", List.of("orderRef", "assignee", "businessKey")));
-
     private final ToolRegistry toolRegistry;
     private final ToolWhitelist toolWhitelist;
     private final ToolInvocationService toolInvocationService;
@@ -86,8 +65,8 @@ public class ToolMcpBridge {
             String exposed = exposedNames.get(rawName);
             McpSchema.Tool tool = McpSchema.Tool.builder()
                     .name(exposed)
-                    .description(TOOL_DESCRIPTIONS.getOrDefault(rawName, rawName))
-                    .inputSchema(TOOL_SCHEMAS.getOrDefault(rawName, Map.of("type", "object")))
+                    .description(ToolCatalog.description(rawName))
+                    .inputSchema(ToolCatalog.mcpSchema(rawName))
                     .annotations(McpSchema.ToolAnnotations.builder()
                             .title(rawName)
                             .idempotentHint(true)

@@ -32,6 +32,11 @@
             <groupId>com.aiwarden</groupId>
             <artifactId>aiwarden-governance</artifactId>
         </dependency>
+        <!-- 问答编排复用知识库检索（可见集下推入口 RetrievalService；M3/ADR-012） -->
+        <dependency>
+            <groupId>com.aiwarden</groupId>
+            <artifactId>aiwarden-knowledge</artifactId>
+        </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-jdbc</artifactId>

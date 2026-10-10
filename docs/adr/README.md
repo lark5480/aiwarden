@@ -27,6 +27,7 @@
 | [ADR-009](ADR-009-tool-side-effect-governance.md) | 工具副作用治理机制（幂等键状态机、补偿逆序、工具可见面） | 已采纳（2026-10-07） | ✔（切片②回填 / M2 复核） |
 | [ADR-010](ADR-010-quota-strong-consistency.md) | 配额强一致机制（Redis Lua 预扣减、幂等、对账、限流） | 已采纳（2026-10-07） | ✔（切片③回填 / M2 复核） |
 | [ADR-011](ADR-011-governance-tax-and-mcp.md) | 治理税度量方法（四项微计时口径）与 MCP 最小版取舍 | 已采纳（2026-10-07） | ✔（切片④回填） |
+| [ADR-012](ADR-012-chat-orchestration-and-eval.md) | 问答编排与评测口径（Mock 模型替身 + 真实治理管道） | 已采纳（2026-10-07） | — |
 
 **新增 ADR 的步骤**（保持本目录可用）：
 

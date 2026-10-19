@@ -186,6 +186,29 @@ awk '/^### 结论表/,/^### 复现口径/' docs/STATUS.md \
   修正：拆开 `tryClaimForIndex`（FAILED 可重抢）与 `tryClaimForDelete`（**INDEXED / FAILED 可重抢**）。
   **写幂等仲裁前先问一句：这个键上会不会出现合法的多次流转？** P3 工具幂等会复用同一套方法论，尤其注意。
   依据见 [`ADR-005` 修订段](docs/adr/ADR-005-outbox-idempotent-consumption.md)。
+- **「发现类」判据（对账 / 审计 / 健康检查）必须按「数据能呈现的形态」穷举，不按「链路的命名」穷举**：
+  M1 的对账三条判据是按「删除链路会残留什么」写的（残留切片 / 孤儿向量 / 账本 `PROCESSING` 超时），
+  于是**「事件永久失败 → 账本根本没建起来」这个形态结构性地落在判据之外**——实测本机一条
+  `t_outbox_event` 重试到上限置 `FAILED`，文档停 `PENDING` **九天**，而 `mismatch_count=0`、
+  `aiwarden_ingest_stuck 0.0`：**不报错、不进不一致清单、指标恒 0**，症状只在 B 端页面一句「1 个待摄入」。
+  修正：`mismatchCount` 第二项扩为**三条子判据按 `doc_id` 去重的并集**（事件 `FAILED` / 账本超时 /
+  文档状态超时），`repair` 同步增加第二类显式动作（重驱动 `FAILED → PENDING`）。
+  **写判据时先问一句：这条判据的「盲区」是什么形态？被它排除的那些行，会不会正好是最安静的那种失败？**
+  另注：重驱动**不等于收敛**——事件置回 PENDING 后文档仍停摆（reason 退化为 `DOCUMENT_OVERDUE`），
+  验收要断言到状态真的完成，不能拿「接口返回 200」当「已修好」。
+  **补一条守卫（同一轮注入实验抓到的假阳性）**：`FAILED` 事件**只在文档未收敛**（仍 PENDING/PROCESSING）
+  时才算停摆——把一条已被成功消费的索引事件改回 `FAILED`，无此限制就把已 `INDEXED` 的文档
+  报成不一致；文档行不存在也没有可重驱动目标，不再计入 `OUTBOX_FAILED`。且**判据、`failedOutboxEvents` 计数、
+  `repair` 的重驱动三处必须用同一个过滤条件**，
+  口径分叉的下一个症状就是「清单为空 / 计数 0 / 却重驱动了 1 条」。依据见
+  [`ADR-006` 修订段](docs/adr/ADR-006-reconcile-readonly.md)。
+- **对账 `repair` 的重驱动必须带「事件类型 + 当前版本」双守卫**：`type LIKE 'document.%'` 会把
+  `document.delete.requested` 也放回；删除事件重放会重新 purge **全部版本**，可能删掉同名重传的新文档。
+  旧版本索引事件重放则会用当前内容按旧 version 写回，并删掉新版本切片。幂等键 `(docId, version)`
+  只挡重复投递，**挡不住“旧事件晚到”**。判据 / 计数 / 重驱动三处共用同一条件
+  （`REDRIVABLE_FAILED_INDEX_EVENT` = 当前版本 + 索引类 + 文档 PENDING/PROCESSING），
+  消费端再按 `t_document.version` 拒一次（`DocumentEventConsumer` + handler 双守卫）。
+  依据与现场路径见 [`ADR-006` 修订段](docs/adr/ADR-006-reconcile-readonly.md)。
 - **HNSW 行为学测试的三个「静默假绿」陷阱，本轮全踩过（依据见 [`ADR-008` 修订段](docs/adr/ADR-008-visibility-acl-model.md)，测试类有完整注释）**：
   ① **planner 不到大表不走 HNSW**——5000 / 20000 / 50000 行实测全选精确路径（Seq Scan → 并行
   `Gather Merge` → btree 表达式索引 → 主键索引，随 JSONB 过滤的选择性估算在 1/250/50000 间横跳），
@@ -239,7 +262,7 @@ awk '/^### 结论表/,/^### 复现口径/' docs/STATUS.md \
   都要问一句续跑重做时这条写入是否幂等。** 证据见 `AgentCrashResumeContainersTest` 的 crash-at-metering 用例。
 - **本机环境类症状不在本节，判据与处置的唯一正文见 [`docs/dev/troubleshooting.md`](docs/dev/troubleshooting.md)**。
   四条最容易被误判成「代码 / 装配问题」的现象，认症状即可（正文各自展开）：
-  ① **B 端评测报告页在本地开发库必为 404**（`t_eval_report` 由门禁测试写进 Testcontainers 的临时库，容器即销毁）——
+  ① **B 端评测报告页在本地开发库、`t_eval_report` 表为空时必为 404**（该表由门禁测试写进 Testcontainers 的临时库，容器即销毁；手工 INSERT 过就不再 404）——
   先查表行数，别怀疑路由；路由存在性用「不带身份头应返回 400」证明。
   ② **`Connection to localhost:5432 refused`** = 库没起；异常链会伪装成 `flywayInitializer` 装配故障，
   真因在链最底部的 TCP 层；`28P01` 才是凭据错，`08001` 两种都会有、别拿它判因。

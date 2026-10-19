@@ -496,3 +496,94 @@ README 第一屏结论表是其**对外投影**，更新方向不可逆（STATUS
 
 **【落到文档的动作】** PRD §8 M4 行标注可选实验状态；STATUS §3 增补 M4 已知边界
 （P1 P95 / Tempo / Loki / K8s / halt 语义 / 前端未点击实测）；FAILURE.md 的 D 类登记「Loki / Tempo 未实跑」。
+
+---
+
+## 28. 全项目审计（2026-10-19）暴露的静默缺口：对账补「摄入停摆」判据（含三条子判据），repair 补事件重驱动
+
+**【裁决】**
+- **`mismatchCount` 第二项重定义为「摄入停摆文档数」**：三条子判据（**当前版本**的索引事件 `FAILED` /
+  **当前版本**账本 `PROCESSING` 超 5 分钟 / 文档 `PENDING`·`PROCESSING` 超 5 分钟且未软删）
+  **按 doc_id 去重取并集**，`detailsJson` 新增 `stuckIngest`（逐条带 `reason`）与 `failedOutboxEvents`；
+  指标沿用 `aiwarden_ingest_stuck_total`，语义随判据扩大，不另立新名。
+- **`POST /repair` 增加第二类显式动作**：**当前版本、文档存在且未收敛**的索引事件重驱动
+  （`FAILED → PENDING`、`retry_count` 归零），响应契约加 `redrivenEvents`。ADR-006 追加修订段。
+  **删除事件与旧版本索引事件不重驱动**（删除事件重放会 purge 全部版本；旧版本事件会覆盖新版本产物）。
+- **PRD §12 P1 行与 FR-ING-06 同步**：「不允许静默放过」从此覆盖摄入路径，不再只覆盖删除残留。
+- **反向守卫（同一轮注入实验逼出来的）**：`FAILED` 事件**只在文档未收敛**时才计入停摆——把一条已被
+  成功消费的索引事件改回 `FAILED`，无此限制会把已 `INDEXED` 的文档误报成不一致；
+  且**判据、`failedOutboxEvents` 计数、`repair` 的重驱动三处必须共用同一过滤条件**。
+
+**【理由】** 现场证据：本机 `t_outbox_event` id=1 重试到上限置 `FAILED`，文档 1 停 `PENDING` 九天、
+ledger 零行，旧三条判据全部无感——`mismatch_count=0` 且 `aiwarden_ingest_stuck 0.0`。
+这与本项目的立身之本（「不一致必须可查」）直接冲突，且属 AGENTS §4 那个熟悉家族：**不报错、只是静默不生效**。
+判据按「数据形态」穷举而不是按「链路命名」穷举，是本轮的可迁移教训。
+
+**【落到文档的动作】** ADR-006 修订段；STATUS §2（P1 行的口径与本轮实测数字）与 §3（边界：
+重驱动不等于收敛、事件行缺失不自动补发）；troubleshooting §5（评测页 404 的前提是表为空）、
+§7（`detail_ref` 新键名）、§8（判据改为「两条残留 + 摄入停摆」+ 当前版本索引事件重驱动）；AGENTS §4 增一条可迁移判据；
+前端一致性页 `stuckProcessing` 磁贴换成「摄入停摆（stuckIngest）」并新增停摆清单表。
+
+**【验证】** `ConsistencyReconcileContainersTest` 新增用例多段断言（命中 → 去重 → 重驱动后仍未收敛 →
+摄入完成才归零 → 假阳性守卫）；现场差分：同一库同一数据，修复前 `POST /scan` 报 `mismatchCount=0`、
+修复后报 `1`（reason `OUTBOX_FAILED`），`/repair` 返回 `redrivenEvents=1`，relay 重发 → 消费者置
+`INDEXED` → 复扫 `mismatchCount=0`，该文档重新可检索。
+
+---
+
+## 29. 实测数字口径校正：评测 P95 的抖动带、压测拐点的判据措辞、单类复跑命令的必需 flag
+
+**【裁决】**
+- **评测 P95 不再书写单点值**：本轮从干净 clone 两次独立实测为 **116ms / 224ms**，
+  而 STATUS 旧正文写 23ms（抖动历史 44/52/58ms）——差 5–10 倍。裁决把 §2 的「评测」行改为
+  **抖动范围 + 环境说明（66–224ms，同日 3 次样本）**（评测门禁与容器/后端同机跑，P95 受同机负载主导，
+  样本量 24、nearest-rank），并保留 `avgCost=0.000869`（本轮精确复现，是确定性可复算的量）。
+  README 原先多写的 76ms 无来源，已删除并与 STATUS 对齐。
+- **压测「拐点=并发 4」的措辞收紧**：报告 §3 的判据由「RPS 不再随并发增长」改为
+  **「以 P99 抬升为主判据、RPS 平台为次判据」**，并明写 C16 的 80.61 RPS 高于 C4、落在报告自陈的
+  10–30% 抖动带内——原措辞与自家数据表读起来互相矛盾（审计 P1-04）。数字不回改，只改判据表述。
+- **单类复跑命令必须带 `-Dsurefire.failIfNoSpecifiedTests=false`**：`-pl aiwarden-start -am test
+  -Dtest=<单类>` 在没有匹配类的兄弟模块（`aiwarden-common`）上直接 BUILD FAILURE（实测 1.5s 失败）。
+  命令正文归位 STATUS §2，troubleshooting §5 只留指针。
+
+**【理由】** 三处都是「文档写了、照抄就失败或读起来矛盾」的同一族问题：**口径级数字必须能当场复算，
+判据级结论必须与自己附的表一致**。审计的价值正在这里——测试全绿不代表投影数字成立。
+
+**【落到文档的动作】** STATUS §2（评测行、治理税行、复现口径三条 bullet、测试数行）；
+`docs/benchmarks/M4-load-report.md` §3（判据段就地改写，属权威源的措辞修正，非历史回改）；
+README 第一屏同步投影（单向 STATUS → README）；troubleshooting §5。
+
+---
+
+## 30. 审计修复的安全边界：重驱动限定「当前版本索引事件」，账本判据按当前版本过滤
+
+**【裁决】**
+- **`repair` 只重驱动当前版本、文档存在且未收敛的索引事件**（`document.index.requested`），
+  条件收敛为一个 `REDRIVABLE_FAILED_INDEX_EVENT`（判据 / `failedOutboxEvents` 计数 / repair 三处共用）。
+  **删除事件不重驱动**：删除事件重放会重新 `purgeDocumentArtifacts`（清全部版本），
+  同名重传的新文档可能被清空；删除的后果由残留切片 / 孤儿向量判据负责。
+  **旧版本索引事件不重驱动**：幂等键 `(docId, version)` 只挡重复投递，挡不住旧事件晚到；
+  旧事件会按旧 version 写回当前内容并删掉新版本切片。
+- **消费端双守卫**：`DocumentEventConsumer` 在 claim 前用 `t_document.version` 拒绝**旧版本**事件
+  （文档不存在时放行，让 handler 走 `DocumentNotFoundException` 终态，避免静默跳过）；
+  `DefaultDocumentIngestHandler` 读取文档后再校验一次，覆盖“检查后到读取前又重传”的竞态。
+- **`LEDGER_PROCESSING` 判据只算当前版本、当前未收敛的文档**：旧版本卡死（当前版本已 `INDEXED`）
+  不再误报；孤儿账本仍保留为可见异常，由人工核查。
+- **前端 repair 只对可修复项启用**（残留文档 / `OUTBOX_FAILED`），执行后自动重扫一轮；
+  文案明确「重驱动 ≠ 收敛」，不再把 `LEDGER_PROCESSING` 说成可重驱动。
+
+**【理由】** 第一轮审计的修复只解决了“发现”，第二轮注入实验证明“修复动作本身”也需要安全边界：
+`type LIKE 'document.%'` 会把删除事件也纳进来，旧版本事件也没有版本校验。两者都能在
+“删除 FAILED → 同名重传 → 文档 PENDING”或“v2 在飞 → v1 旧事件被重驱动”时造成数据丢失/覆盖。
+这与本项目「repair 幂等安全」的承诺直接冲突。
+
+**【落到文档的动作】** ADR-006 修订段（补安全边界与消费端守卫）；PRD FR-ING-06（判据三类、
+只重驱动当前版本索引事件）；STATUS §2/§3（口径、测试数 170、边界）；troubleshooting §8
+（验收定义指针 + 删除/旧版本不重驱动）；AGENTS §4（重驱动双守卫）；README 同步；
+前端一致性页（repair 可修复性、自动刷新、文案）；`ConsistencyReconcileContainersTest`
+新增删除事件 / 旧版本索引 / 旧版本账本三个回归。
+
+**【验证】** `mvn -B -ntp verify` → **170 个测试全绿**（`16 + 8 + 146`，0 失败 0 跳过）；
+`ConsistencyReconcileContainersTest` 5/5：新增用例分别断言删除事件 FAILED + 同名重传不被重驱动
+（事件仍 `FAILED`、文档仍 `PENDING`）、旧版本索引事件不被重驱动、旧版本账本 `PROCESSING` 不被误报。
+前端 `pnpm build` 通过（`vue-tsc --noEmit` + `vite build`）。

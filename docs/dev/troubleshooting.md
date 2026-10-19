@@ -138,7 +138,7 @@ IntelliJ 在 Run/Debug Configuration 的 **Active profiles** 填 `local`）。
 
 ---
 
-## 5. B 端「评测报告」页在本地开发库必为 404，不是故障
+## 5. B 端「评测报告」页在本地开发库通常是 404（表为空时），不是故障
 
 `GET /api/v1/admin/eval/report` 返回 404 + `{"detail":"暂无评测报告…"}` 是**预期行为**：
 `t_eval_report` 由评测门禁测试写入 **Testcontainers 的临时数据库**，测试结束容器即销毁——
@@ -147,7 +147,14 @@ IntelliJ 在 Run/Debug Configuration 的 **Active profiles** 填 `local`）。
 **判据**：看该接口 404 时**先查 `t_eval_report` 行数**，别去怀疑路由或 controller。
 路由存在性可用「不带身份头应返回 400」证明——400 说明请求已到我们的 controller。
 
-要看真实数据只有两条路：跑 `mvn verify` 读测试输出里的 `EVAL-SUMMARY`，
+**「必为 404」的前提是这张表为空**（2026-10-19 实测补正）：一旦按下面第二条路 INSERT 过，
+接口就返回 **200**，页面显示的是**那一轮**的 `runAt` / P95 / 平均成本——它与
+[`docs/STATUS.md`](../STATUS.md) §2 的对外投影**不是同一轮**，别把页面上的数字当成 README 的那组。
+判据一句话：**先看 `runAt`**，它早于本轮实测就不是本轮。
+
+要看真实数据只有两条路：跑 `mvn verify` 读测试输出里的 `EVAL-SUMMARY`（单类复跑用 `-am` 形态时
+必须带 `-Dsurefire.failIfNoSpecifiedTests=false`，否则在没有匹配类的兄弟模块上直接 BUILD FAILURE；
+完整命令见 [`docs/STATUS.md`](../STATUS.md) §2），
 或自行把结论 INSERT 进本地库（表结构见 `V9__eval_report.sql`）。
 
 ---
@@ -187,7 +194,7 @@ IntelliJ 在 Run/Debug Configuration 的 **Active profiles** 填 `local`）。
 **① 一致性报告**：`GET /api/v1/admin/consistency/report` 有 37+ 份报告并不等于有内容——
 `t_reconcile_report` 是**平台级表（无 tenant 维度）**，对账每 5 分钟自动写一条，实测
 **37 份报告里 `mismatch_count > 0` 的有 0 份**，最新几条 `detail_ref` 都是
-`{"staleDocuments":[],"orphanVectors":0,"stuckProcessing":0,...}`。
+`{"staleDocuments":[],"orphanVectors":0,"stuckIngest":[],"failedOutboxEvents":0,...}`。
 所以「不一致清单为空：没有已删除文档的残留切片」是**正确空态，不是故障**。
 要看到非空清单只有制造一次不一致（软删文档后让残留留下）再等扫描 / 调 `POST /scan`。
 **另注**：该表无 tenant 列，`POST /repair` 是**清全租户残留**、不按租户过滤，多租户演示时别踩。
@@ -208,10 +215,19 @@ IntelliJ 在 Run/Debug Configuration 的 **Active profiles** 填 `local`）。
 `DELETE /api/v1/documents/4`，17:34:32 扫描时残留已为 0），根本没有可演示的窗口。
 所以残留必须**从数据面注入**（模拟「删除事件丢失 / 消费停摆窗口」），而不是等它自然发生。
 
-**对账看的是库，不是事件**（`ConsistencyReconciler.runOnce()`）：三处判据都在同一轮 SQL 里——
-① `t_chunk JOIN t_document WHERE d.deleted_at IS NOT NULL`（残留切片，按 `doc_id` 聚合计数）；
-② 同条件下的 `t_vector` 计数（孤儿向量）；③ `t_ingest_ledger` 里 `PROCESSING` 且超 5 分钟（超时未收敛）。
-`mismatchCount = 残留文档数 + 超时未收敛数`。
+**对账以库内数据形态为准，包括 outbox 表的终态**（`ConsistencyReconciler.runOnce()`）——
+**验收定义见 [`docs/PRD.md`](../PRD.md#L192) FR-ING-06；决策理由见
+[`docs/adr/ADR-006`](../adr/ADR-006-reconcile-readonly.md) 修订段**。2026-10-19 起判据三类
+（第三类「摄入停摆」含三条子判据：**当前版本索引事件** `FAILED` / 当前版本账本 `PROCESSING` 超时 /
+文档 `PENDING` 超时，按 `doc_id` 去重）。本节只留演示配方用得上的三句：
+① 残留必须**从数据面注入**（见上面第一段）；
+② 停摆形态不止一种——「账本 `PROCESSING` 卡死」与「当前版本索引事件重试到上限置 `FAILED`、账本根本
+没行」是两个形态，后者早期判据看不到（实测本机一条事件停在 `FAILED`、文档停 `PENDING` 九天，
+`mismatch_count=0`、`aiwarden_ingest_stuck 0.0`，**不报错也不进清单**，症状只有 B 端页面一句「1 个待摄入」）；
+③ `POST /repair` 只把**当前版本、文档存在且未收敛的索引事件**重驱动回 `PENDING`（`retry_count` 归零），
+由 relay 重发、消费者按幂等仲裁补齐。**删除事件与旧版本索引事件不重驱动**——删除事件被放回会重新
+purge 全部版本（可能清掉同名重传的新文档），旧版本索引事件会覆盖新版本产物；已被成功消费的文档即使
+事件行呈 `FAILED` 也不算停摆（假阳性守卫）。
 
 **实测走通的步骤**（2026-10-10，脚本阶段化，每步都可单独核对）：
 
@@ -219,7 +235,7 @@ IntelliJ 在 Run/Debug Configuration 的 **Active profiles** 填 `local`）。
 |---|---|---|
 | 1 | 给 doc3 复制一份残留产物，并把 `deleted_at` 置为 now()（**不写 outbox** → 不会被消费者清掉） | `chunks=2 vecs=2`，`status=DELETED` |
 | 2 | `POST /api/v1/admin/consistency/scan` | `mismatchCount=1`，清单 `[{"doc_id":3,"tenant_id":1,"stale_chunks":2}]`，`orphanVectors=2` |
-| 3 | `POST /api/v1/admin/consistency/repair` | `{"repairedDocuments":1}` |
+| 3 | `POST /api/v1/admin/consistency/repair` | `{"repairedDocuments":1,"redrivenEvents":0}` |
 | 4 | 再 `POST /scan` | `mismatchCount=0`、`orphanVectors=0`；Prometheus `aiwarden_vector_orphan 0.0` |
 | 5 | 复原（补回切片与向量、文档与账本置回 `INDEXED`） | doc3 恢复可检索（C 端 `kbId=2` 能查到并抽取作答） |
 

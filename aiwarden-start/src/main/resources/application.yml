@@ -21,7 +21,9 @@ spring:
       port: ${AIWARDEN_REDIS_PORT:6379}
 
 # 运维面：Prometheus 指标端点（含 aiwarden_vector_orphan_total / aiwarden_ingest_stuck_total）
-# Trace（M4 / FR-OBS）：OTLP → docker compose 的 otel-collector → Tempo；采样率演示环境取 1.0。
+# Trace（M4 / FR-OBS）：OTLP 导出默认关闭——**collector / Tempo 不在 compose 内、本轮未实跑**
+# （镜像拉取受限，见 docs/STATUS.md §3 ①）；起好 collector 后再用 AIWARDEN_TRACE_EXPORT_ENABLED=true 打开。
+# 采样率演示环境取 1.0。
 management:
   endpoints:
     web:

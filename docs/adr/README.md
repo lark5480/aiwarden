@@ -23,7 +23,7 @@
 | [ADR-003](ADR-003-tenant-context-capture.md) | 租户上下文显式 capture/apply（不引入 TTL） | 已采纳（2026-10-06） | — |
 | [ADR-004](ADR-004-keep-kafka.md) | 消息中间件保留 Kafka（决策点提前实测） | 已采纳（2026-10-07） | — |
 | [ADR-005](ADR-005-outbox-idempotent-consumption.md) | Outbox 发布与幂等消费时序（轮询 Relay + 至少一次 + 唯一键仲裁） | 已采纳（2026-10-07） | ✔（2026-10 切片③） |
-| [ADR-006](ADR-006-reconcile-readonly.md) | 对账只读发现、修复显式触发（不自动改数据） | 已采纳（2026-10-07） | — |
+| [ADR-006](ADR-006-reconcile-readonly.md) | 对账只读发现、修复显式触发（不自动改数据） | 已采纳（2026-10-07） | ✔（2026-10 审计修复：判据补摄入停摆、重驱动限定当前版本索引事件） |
 | [ADR-007](ADR-007-visibility-pushdown.md) | 可见集过滤机制：向量表 metadata filter 下推（JOIN 退场） | 已采纳（2026-10-07） | — |
 | [ADR-008](ADR-008-visibility-acl-model.md) | 可见集 ACL 模型与下推算法（主体、四级语义、拒绝与审计） | 已采纳（2026-10-07） | ✔（切片①实测 / M2 复核） |
 | [ADR-009](ADR-009-tool-side-effect-governance.md) | 工具副作用治理机制（幂等键状态机、补偿逆序、工具可见面） | 已采纳（2026-10-07） | ✔（切片②回填 / M2 复核） |

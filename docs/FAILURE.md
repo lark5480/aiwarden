@@ -52,6 +52,8 @@
 | 2026-10-10 实测 | 前端把 mutation 打在响应式代理之外：数据变了但不重渲染 | [`../AGENTS.md`](../AGENTS.md) §4 · [`adr/ADR-012`](adr/ADR-012-chat-orchestration-and-eval.md) 缺陷表 |
 | 2026-10-19 实测 | 子进程集成测试用 `SpringApplicationBuilder.properties()` 配数据源，被 `application.yml` 覆盖 → 连错库（看似「容器没起」） | [`../AGENTS.md`](../AGENTS.md) §4 |
 | M3 评测首轮 | `expectedDocs`「语义相关必命中」在哈希伪嵌入下是抛硬币，该类断言删除 | [`adr/ADR-012`](adr/ADR-012-chat-orchestration-and-eval.md) 修订段 · [`STATUS.md`](STATUS.md) §3 |
+| 2026-10-19 实测 | 对账判据按「链路命名」而非「数据形态」穷举：outbox 事件重试到上限置 `FAILED` 后文档停 `PENDING` 九天、账本零行，三条判据全部无感（`mismatch_count=0`、`aiwarden_ingest_stuck 0.0`，不报错也不进清单） | [`adr/ADR-006`](adr/ADR-006-reconcile-readonly.md) 修订段 · [`dev/troubleshooting.md`](dev/troubleshooting.md) §8 · [`../AGENTS.md`](../AGENTS.md) §4 |
+| 2026-10-19 审计补 | 重驱动未区分事件类型/版本：删除事件被放回会重新 purge 全部版本（可能清空同名重传文档）；旧版本索引事件可能覆盖新版本产物 | [`adr/ADR-006`](adr/ADR-006-reconcile-readonly.md) 修订段 · [`STATUS.md`](STATUS.md) §2 · [`../AGENTS.md`](../AGENTS.md) §4 |
 
 ## D. 承诺与默认配置之间的缝隙、以及未达成项
 
@@ -71,6 +73,8 @@
 | 2026-10-19（M4） | 模型调用维度归因已接 OTel span（`t_llm_call_log.trace_id` / `cost` 回填） | [`adr/ADR-014`](adr/ADR-014-observability-trace.md) · [`STATUS.md`](STATUS.md) §2 |
 | 2026-10-19（M4） | Loki 日志关联、Tempo/Collector 实跑未完成（本机 Docker Hub 不可直连） | [`STATUS.md`](STATUS.md) §3 · [`research/06`](research/06-PRD修订裁决清单.md) 裁决 27 |
 | 2026-10-19（M4） | K8s/Helm + HPA 可选实验未做（非交付承诺，主动不投入） | [`PRD.md`](PRD.md) §8 · [`research/06`](research/06-PRD修订裁决清单.md) 裁决 27 |
+| 2026-10-19 实测 | 评测 P95 写成单点值不可复现（同日多次实测落在此前记录的抖动带之外）——改为「抖动范围 + 同机负载说明」，单点值不再对外投影 | [`STATUS.md`](STATUS.md) §2 结论表 · [`research/06`](research/06-PRD修订裁决清单.md) 裁决 29 |
+| 2026-10-19 实测 | 压测「拐点=并发 4」的旧判据句（「RPS 不再随并发增长」）与自家吞吐表读起来矛盾（更高并发的采样值反而更大）——判据改为以 P99 抬升为主，数字不回改 | [`benchmarks/M4-load-report.md`](benchmarks/M4-load-report.md) §3 · [`research/06`](research/06-PRD修订裁决清单.md) 裁决 29 |
 
 ## E. 环境类静默失效（与项目代码无关）
 
@@ -78,7 +82,7 @@
 |---|---|---|
 | 2026-10-10 实测定位 | Windows 把 TCP 9092 划进保留端口区间 → Docker 不 bind 也不报错，outbox 全卡 `PENDING` | [`dev/troubleshooting.md`](dev/troubleshooting.md) §2 |
 | 2026-10-07 实测 | 本机 Testcontainers 的 npipe 探测偶发失败，且删配置只对当次生效（策略会被写回缓存） | [`../AGENTS.md`](../AGENTS.md) §4 |
-| 2026-10-10 实测 | 本地开发库的评测报告页必为 404（`t_eval_report` 只存在于临时容器库） | [`dev/troubleshooting.md`](dev/troubleshooting.md) §5 |
+| 2026-10-10 实测 | 本地开发库、`t_eval_report` 表为空时评测报告页必为 404（该表只存在于临时容器库；手工 INSERT 过就不再 404） | [`dev/troubleshooting.md`](dev/troubleshooting.md) §5 |
 | 2026-10-10 实测 | 残留的旧实例进程占着 8080 且跑旧 profile，同时表现为「Kafka 连不上」和「端口占用」 | [`dev/troubleshooting.md`](dev/troubleshooting.md) §3 |
 | 2026-10-10 实测 | 前端只 bind 了 `[::1]:5173`，`127.0.0.1:5173` 被拒；`file://` 直开 `dist` 是纯白页——「什么都看不到」不等于前端坏了 | [`dev/troubleshooting.md`](dev/troubleshooting.md) §6 |
 | 2026-10-10 实测 | 一致性报告 37 份里不一致数**全为 0**（「清单为空」是正确空态却读起来像故障）；孤儿向量曲线需手动采样、且不累积历史 | [`dev/troubleshooting.md`](dev/troubleshooting.md) §7 |

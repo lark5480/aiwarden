@@ -2,9 +2,9 @@
 /**
  * B 端 · 一致性报告页（FR-ADM-03）。
  * 数据源：GET /api/v1/admin/consistency/report（ConsistencyController.java:28）
- *        POST /api/v1/admin/consistency/scan（:37）、POST /api/v1/admin/consistency/repair（:43）
- * detailsJson 是字符串，解析后为 { staleDocuments, orphanVectors, stuckProcessing, scannedAt }
- * （ConsistencyReconciler.runOnce() :107-111）。
+ *        POST /api/v1/admin/consistency/scan（:39）、POST /api/v1/admin/consistency/repair（:63）
+ * detailsJson 是字符串，解析后为 { staleDocuments, orphanVectors, stuckIngest, failedOutboxEvents, scannedAt }
+ * （ConsistencyReconciler.runOnce()）。
  */
 import { computed, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
@@ -23,6 +23,7 @@ import {
   type ConsistencyDetails,
   type ConsistencyReport,
   type StaleDocument,
+  type StuckIngestDocument,
 } from '@/api/governance'
 import { getAgentRunByTrace, type AgentRunView } from '@/api/agent'
 import { getPrometheusText } from '@/api/admin'
@@ -55,6 +56,11 @@ const gaugeHelp = ref<string | null>(null)
 let timer: number | null = null
 
 const staleDocuments = computed<StaleDocument[]>(() => details.value?.staleDocuments ?? [])
+const stuckIngest = computed<StuckIngestDocument[]>(() => details.value?.stuckIngest ?? [])
+/** repair 只处理残留产物和当前版本索引事件；账本/文档超时需摄入完成或人工重传。 */
+const repairable = computed(
+  () => staleDocuments.value.length > 0 || stuckIngest.value.some((row) => row.reason === 'OUTBOX_FAILED'),
+)
 
 /** 最近 N 轮扫描（M4）：用于区分「不一致清单为空」与「系统根本没在扫」。 */
 const recentReports = ref<ConsistencyReport[]>([])
@@ -199,8 +205,27 @@ async function repair(): Promise<void> {
   repairResult.value = null
   try {
     const response = await repairConsistency()
-    repairResult.value = `本次清理残留文档 ${response.repairedDocuments} 个（对残留文档补做产物清理：先向量后切片，账本置 DELETED，幂等可重跑）`
-    ElMessage.success('修复完成')
+    const actions: string[] = []
+    if (response.repairedDocuments > 0) {
+      actions.push(`清理残留文档 ${response.repairedDocuments} 个（先向量后切片，账本置 DELETED）`)
+    }
+    if (response.redrivenEvents > 0) {
+      actions.push(`重驱动当前版本失败索引事件 ${response.redrivenEvents} 条（FAILED → PENDING，交回 relay）`)
+    }
+    const summary =
+      actions.length > 0
+        ? `${actions.join('；')}。重驱动不等于收敛：需消费者补齐后才会从清单消失。`
+        : '没有可执行的修复动作：LEDGER_PROCESSING / DOCUMENT_OVERDUE 需摄入完成或人工重传。'
+    // repair 本身不落新报告；重扫一轮才能真正刷新清单与指标。
+    await scan()
+    repairResult.value = summary
+    if (error.value === null) {
+      if (actions.length > 0) {
+        ElMessage.success('修复动作已提交')
+      } else {
+        ElMessage.info('没有可执行的修复动作')
+      }
+    }
   } catch (error_) {
     repairResult.value = `repair 失败：${describe(error_).message}`
   } finally {
@@ -261,7 +286,13 @@ onMounted(() => {
     <div class="consistency__toolbar">
       <el-button :loading="loading" @click="load">刷新报告</el-button>
       <el-button type="primary" :loading="scanning" @click="scan">触发扫描</el-button>
-      <el-button type="danger" plain :loading="repairing" :disabled="staleDocuments.length === 0" @click="repair">
+      <el-button
+        type="danger"
+        plain
+        :loading="repairing"
+        :disabled="!repairable"
+        @click="repair"
+      >
         一键重试（repair）
       </el-button>
       <span v-if="report" class="aw-muted aw-mono">
@@ -326,7 +357,7 @@ onMounted(() => {
         <el-card shadow="never">
           <div class="metric__label">不一致数（mismatchCount）</div>
           <div class="metric__value">{{ report.mismatchCount }}</div>
-          <div class="metric__note">= 有残留的已删除文档数 + 超时未收敛的账本数</div>
+          <div class="metric__note">= 有残留的已删除文档数 + 摄入停摆的文档数（按 doc_id 去重）</div>
         </el-card>
         <el-card shadow="never">
           <div class="metric__label">孤儿向量（orphanVectors）</div>
@@ -334,9 +365,12 @@ onMounted(() => {
           <div class="metric__note">已删除文档的残留向量数</div>
         </el-card>
         <el-card shadow="never">
-          <div class="metric__label">超时未收敛（stuckProcessing）</div>
-          <div class="metric__value">{{ details?.stuckProcessing ?? '—' }}</div>
-          <div class="metric__note">PROCESSING 卡死超过 5 分钟的账本数</div>
+          <div class="metric__label">摄入停摆（stuckIngest）</div>
+          <div class="metric__value">{{ stuckIngest.length }}</div>
+          <div class="metric__note">
+            当前版本索引事件永久失败 / 账本 PROCESSING 超时 / 文档 PENDING 超时，三判据去重；
+            当前版本失败索引事件 {{ details?.failedOutboxEvents ?? '—' }} 条
+          </div>
         </el-card>
         <el-card shadow="never">
           <div class="metric__label">scannedAt</div>
@@ -364,6 +398,42 @@ onMounted(() => {
         </el-table>
         <div class="aw-muted card__note">
           字段名照抄后端结果集别名（doc_id / tenant_id / stale_chunks），不做驼峰改写。
+        </div>
+      </el-card>
+
+      <el-card shadow="never" class="aw-section">
+        <template #header>
+          <div class="card__head">
+            <span class="aw-section__title">摄入停摆清单（stuckIngest）</span>
+            <el-tag size="small" type="info" effect="plain">{{ stuckIngest.length }} 条</el-tag>
+          </div>
+        </template>
+        <el-empty
+          v-if="stuckIngest.length === 0"
+          description="停摆清单为空：没有当前版本失败索引事件、卡死的当前版本账本或超时未收敛的文档"
+          :image-size="70"
+        />
+        <el-table v-else :data="stuckIngest" size="small" border>
+          <el-table-column prop="doc_id" label="doc_id" width="110" />
+          <el-table-column prop="tenant_id" label="tenant_id" width="110" />
+          <el-table-column prop="reason" label="停摆原因（子判据）" width="220" />
+          <el-table-column label="可重驱动">
+            <template #default="{ row }">
+              {{
+                row.reason === 'OUTBOX_FAILED'
+                  ? `是（event_id=${row.event_id}）`
+                  : row.reason === 'LEDGER_PROCESSING'
+                    ? '否（需人工核查/摄入完成）'
+                    : '否（需摄入完成或人工重传）'
+              }}
+            </template>
+          </el-table-column>
+        </el-table>
+        <div class="aw-muted card__note">
+          reason 取命中的最高优先级子判据：<span class="aw-mono">OUTBOX_FAILED</span>（当前版本索引事件永久失败，repair 可重驱动）
+          &gt; <span class="aw-mono">LEDGER_PROCESSING</span>（消费了但没收敛）
+          &gt; <span class="aw-mono">DOCUMENT_OVERDUE</span>（事件没到消费者）。
+          同一文档在停摆清单内只算一条；残留判据与停摆判据分别计数。
         </div>
       </el-card>
 
@@ -450,8 +520,9 @@ onMounted(() => {
 
       <div class="aw-muted card__note">
         数据源：<span class="aw-mono">GET /api/v1/agent/runs/by-trace/{traceId}</span>（数据库检查点，
-        崩溃/续跑后的完整时间线）。span 的父子关系与属性在 Grafana → Explore → Tempo 按同一 traceId 查看
-        （OTLP 端点与 compose 配置见仓库 README / docker-compose.yml）。
+        崩溃/续跑后的完整时间线）。span 的父子关系与属性本应在 Grafana → Explore → Tempo 按同一 traceId 查看，
+        但 <strong>OTel Collector / Tempo 未加入 compose、本轮未实跑</strong>（span 树由内存 exporter 的
+        全链路测试断言，边界见 docs/STATUS.md §3 ①）。
       </div>
     </el-card>
   </div>

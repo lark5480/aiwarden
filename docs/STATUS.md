@@ -53,7 +53,7 @@
 
 | 承诺 | 指标 | 结果 |
 |---|---|---|
-| P1 删除即失效 | 删除生效 **P95**（目标 ≤ 5s）/ 超窗残留进入不一致清单的条数 | 自动化用例 **5 轮全 ≤ 5s**（**当前为单次断言口径**，非分位数）；**P95 分位数量化仍是残余边界**（M4 压测聚焦治理税与吞吐，未覆盖删除路径，见 §3）；超窗残留由对账发现（M1 用例已证） |
+| P1 删除即失效 | 删除生效 **P95**（目标 ≤ 5s）/ 超窗残留进入不一致清单的条数 | **P95 = 1975ms**（2026-10-19 补测：**30 轮**，含 relay 的 **2s 调度等待**，计时终点为「按原文检索 0 命中」；P50 **1870ms** / max **2076ms**，**30/30 < 5s**；两次独立运行 P95 = 1935 / 1975ms）；M1 的 **5 轮单次断言**用例保留为确定性回归门禁；超窗残留由对账发现（M1 用例已证）。复现命令见下 |
 | P2 检索层隔离 | 越权样本拦截率（20 条） | **100%**（16 条检索类 + 4 条工具类，随 `mvn verify` 门禁） |
 | P3 副作用幂等 | 断网重放后工单数（期望 1） | **1**（重放复用首见结果；`t_ticket` 唯一约束兜底） |
 | P4a 用量可归因 + 配额强一致 | 四维归因覆盖率 / 配额检查（预扣减 / 幂等）正确性 | 工具链路四维齐备（租户/会话/步骤/工具）；预扣减幂等 / 并发不超卖 / 超限 429 / 对账差异 0。**M4 起模型调用维度也带 trace/step 上下文**（`t_llm_call_log.trace_id` + `cost` 回填），四维归因的「步骤」维度可由 traceId 串联 |
@@ -92,6 +92,13 @@
   **数字为何比上一轮变**：抽取式作答让回答正文变长（每条命中片段都被引入正文），
   completion tokens 随之增加 → 单次成本上升；P95 反而下降是**本轮样本的抖动**（nearest-rank、24 条），
   不构成「改动让系统变快」的结论。
+- **P1 删除 SLO 的复现口径（2026-10-19 补测）**：`aiwarden-start` 的 `P1DeleteSloProbe`
+  （类名不以 Test 结尾，**默认 `mvn verify` 不执行**）走 HTTP → outbox → Kafka → 消费删向量的真实链路，
+  **30 轮、relay 按生产默认 2000ms 调度、全程不手动 `pollOnce()`**（`INDEXED` 能到达本身就是调度生效的自证），
+  计时终点为「按原文检索 0 命中」。命令：
+  `mvn -B -ntp -pl aiwarden-start -am test -Dtest=P1DeleteSloProbe -Dsurefire.failIfNoSpecifiedTests=false`
+  （需 Docker；本机 npipe 绕行见 [`AGENTS.md`](../AGENTS.md) §4）；逐轮样本与 P50/P95/max 写在
+  `aiwarden-start/target/p1-delete-slo.txt`。
 - **前端独立口径**：`aiwarden-web` 是独立 pnpm 工程，**不进 `mvn verify`、不计入上面的 166**；
   其验证是 `pnpm build`（含 `vue-tsc --noEmit` 类型检查）通过 + `pnpm dev` 启动无编译错误，
   并已用真实后端做端到端联调（经 Vite 代理 5173→8080 打通 `/api`、`/actuator/prometheus` 与 SSE 流）。
@@ -124,8 +131,6 @@
   （[ADR-012](adr/ADR-012-chat-orchestration-and-eval.md) 决策 3）。首轮曾用 `expectedDocs` 断言「语义相关必命中」，
   实测在哈希伪嵌入下是抛硬币，已删除该类断言——门禁只断言可确定判定的数据面。
 - **一致性是「有 SLO 的可对账」**，不是绝对一致（B2）；残余窗口可查询、有指标、可修复。
-- **P1 的 SLO 口径**：实际执行的是「5 轮单次断言 ≤ 5s」，**非 P95 分位数**。M4 压测聚焦治理税与吞吐，
-  **未覆盖删除路径**，P95 分位数量化仍是残余边界（不把「5 轮全过」写成「P95 ≤5s」）。
 - **P4a 四维归因**：工具链路四维齐备；M4 起模型调用维度带 `trace_id` 与 `cost` 回填，
   「步骤」维度可由 traceId + `t_llm_call_log.step_no` 串联（不再依赖「M4 的 OTel span 未实现」这一边界）。
 - **M3 模型侧**：无真实模型端点，问答链路走 **Mock 替身**（确定性剧本）；录制回放机制已就绪，
@@ -160,24 +165,21 @@
   **根因、判据与处置的唯一正文见 [`docs/dev/troubleshooting.md`](dev/troubleshooting.md) 第 2 条。**
   实测已全链路打通：outbox 全 SENT、文档摄入 INDEXED、计量落 `t_llm_call_log`、用量接口返回真实明细。
 - **M4 的已知边界（如实标注，不写成已达成）**：
-  ① **P1 的 P95 仍未量化**（压测未覆盖删除路径，见上）；
-  ② **Tempo / OTel Collector 未实跑、也未加入 compose**：本机 Docker Hub 不可直连（`manifest` / `pull` 超时），
+  ① **Tempo / OTel Collector 未实跑、也未加入 compose**：本机 Docker Hub 不可直连（`manifest` / `pull` 超时），
      可观测栈镜像拉不到，因此不写无法验证的镜像 tag；trace 正确性由 OTel SDK 内存 exporter 的全链路测试证明，
      `AIWARDEN_TRACE_EXPORT_ENABLED` 默认关闭，起好 collector 后再打开（配置在 `application.yml`）；
-  ③ **Loki 日志关联未接入**：FR-OBS-04 的三信号互跳只完成 Metric ↔ Trace 与业务 ID；
-  ④ **K8s/Helm + HPA 未做**（裁决 27，非承诺）；
-  ⑤ **P5 的「kill -9」用 `Runtime.halt(137)` 复现**：同为无关闭钩子、无 flush 的进程终止，
+  ② **Loki 日志关联未接入**：FR-OBS-04 的三信号互跳只完成 Metric ↔ Trace 与业务 ID；
+  ③ **K8s/Helm + HPA 未做**（裁决 27，非承诺）；
+  ④ **P5 的「kill -9」用 `Runtime.halt(137)` 复现**：同为无关闭钩子、无 flush 的进程终止，
      但未在 Linux 上真的发 SIGKILL；测试形态与退出码断言见 ADR-013；
-  ⑥ **前端 KB 页 / Trace 查询本轮只过了 `pnpm build`**，未做新一轮浏览器点击实测（旧三页有浏览器实测记录）。
+  ⑤ **前端 KB 页 / Trace 查询本轮只过了 `pnpm build`**，未做新一轮浏览器点击实测（旧三页有浏览器实测记录）。
 - **未做（汇总）**：P4b（预算降级，裁决 19 砍除）、用户鉴权（身份头为认证层输出的模拟）、
-  P1 删除 P95 分位数量化、Loki 日志采集、K8s/Helm、真实模型 fixture。
+  Loki 日志采集、K8s/Helm、真实模型 fixture。
 
 ## 4. 下一步
 
 M4 已收口。若继续，按「先补可验证性、再扩范围」排序：
 
-- **P1 删除延迟 P95 量化**：在 Kafka 消费链路下做 ≥20 轮删除 → 检索 0 命中的分位数统计，
-  把 §2 的「5 轮单次断言」升级为与 PRD §12 同口径的 P95（这是当前最明确的未达成项）。
 - **可观测整套实跑**：拉取 Collector / Tempo / Grafana 镜像（需先解决本机 Docker Hub 代理），
   用真实 OTLP 链路复跑 `AgentTraceContainersTest` 的同一 traceId，补 Loki 日志关联。
 - **真实模型 fixture**：录制回放轨的 fixture 仍待真实端点补录（不伪造数据）。

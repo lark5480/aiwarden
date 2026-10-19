@@ -61,6 +61,7 @@
 | 2026-10-10 | `require-approval` 缺省为空 → 人工确认卡片默认永不出现，演示需显式开参数 | [`STATUS.md`](STATUS.md) §3 |
 | 2026-10-10（裁决 22） | 收口前 `/admin/consistency/*` 连租户都没校验（裸扫全表即返回报告） | [`STATUS.md`](STATUS.md) §3 |
 | 裁决 18 | P1 实际执行的是「5 轮单次断言 ≤5s」，P95 分位数尚未度量 | [`STATUS.md`](STATUS.md) §2 结论表 · [`PRD.md`](PRD.md) §12 |
+| 2026-10-19（M4 后补测） | P1 删除 P95 已量化（30 轮、含 relay 调度）并达标——原「P95 尚未度量」项关闭 | [`STATUS.md`](STATUS.md) §2 结论表 |
 | M3 | P4a 四维归因当前只覆盖工具链路，模型调用维度依赖 M4 的 OTel span | [`STATUS.md`](STATUS.md) §2 结论表 |
 | M3 | 评测走 Mock 替身，录制回放 fixture 待真实端点补录（不伪造数据） | [`STATUS.md`](STATUS.md) §3 · [`adr/ADR-012`](adr/ADR-012-chat-orchestration-and-eval.md) 决策 3 |
 | — | 治理税的审计留痕开销 / 每请求总开销 / 吞吐拐点 / P99 未测 | [`STATUS.md`](STATUS.md) §2 结论表 |
@@ -85,5 +86,5 @@
 
 ---
 
-**当前覆盖**：A 4 条 · B 10 条 · C 13 条 · D 13 条 · E 7 条（共 47 条，M1–M4 已登记）。
+**当前覆盖**：A 4 条 · B 10 条 · C 13 条 · D 14 条 · E 7 条（共 48 条，M1–M4 已登记，含 M4 后补测 1 条）。
 M4 收官条目已登记；后续翻案立新条目，不回改旧条目。

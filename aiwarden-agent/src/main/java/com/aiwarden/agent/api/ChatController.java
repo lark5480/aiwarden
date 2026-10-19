@@ -6,6 +6,10 @@ import com.aiwarden.common.principal.PrincipalContext;
 import com.aiwarden.common.tenant.TenantContext;
 import com.aiwarden.contract.chat.ChatAskRequest;
 import com.aiwarden.contract.chat.ChatEvents;
+import com.aiwarden.governance.tracing.TraceSupport;
+import io.micrometer.tracing.Span;
+import io.micrometer.tracing.Tracer;
+import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -35,16 +39,18 @@ public class ChatController {
     private static final long SSE_TIMEOUT_MS = 300_000L;
 
     private final ChatOrchestrator orchestrator;
+    private final TraceSupport traceSupport;
 
     /** 虚拟线程执行器（LLM 长阻塞 IO 的标准承载，ADR-002；虚拟线程为守护线程，随 JVM 退出）。 */
     private final ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
 
-    public ChatController(ChatOrchestrator orchestrator) {
+    public ChatController(ChatOrchestrator orchestrator, TraceSupport traceSupport) {
         this.orchestrator = orchestrator;
+        this.traceSupport = traceSupport;
     }
 
     @PostMapping(value = "/api/v1/chat", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public SseEmitter chat(@RequestBody ChatAskRequest request) {
+    public SseEmitter chat(@RequestBody ChatAskRequest request, HttpServletResponse response) {
         if (request.message() == null || request.message().isBlank()) {
             throw new IllegalArgumentException("message 不能为空");
         }
@@ -54,22 +60,37 @@ public class ChatController {
         String orgId = PrincipalContext.orgId();
         TenantContext.Snapshot tenantSnapshot = TenantContext.snapshot();
 
+        // 虚拟线程边界（FR-OBS-02）：请求 span 在请求线程创建，显式 apply 到执行线程。
+        // 这是「capture → apply」而不是 ThreadLocal 自动透传——虚拟线程是一次性线程，语义上不需要污染。
+        Span requestSpan = traceSupport.startSpan("http.chat");
+        requestSpan.tag("aiwarden.tenant_id", String.valueOf(TenantContext.requireTenantIdAsLong()));
+        String traceId = traceSupport.traceIdOf(requestSpan);
+        if (traceId != null) {
+            response.setHeader("X-Trace-Id", traceId);
+        }
+
         SseEmitter emitter = new SseEmitter(SSE_TIMEOUT_MS);
         AtomicBoolean aborted = new AtomicBoolean(false);
         emitter.onError(throwable -> aborted.set(true));
         emitter.onTimeout(() -> aborted.set(true));
 
-        executor.execute(() -> tenantSnapshot.runWith(() -> {
-            PrincipalContext.setPrincipal(userId, orgId);
-            try {
-                orchestrator.chat(request, new SseChatStreamSink(emitter, aborted), aborted);
-                emitter.complete();
-            } catch (Exception e) {
-                emitter.completeWithError(e);
-            } finally {
-                PrincipalContext.clear();
-            }
-        }));
+        try {
+            executor.execute(() -> tenantSnapshot.runWith(() -> {
+                PrincipalContext.setPrincipal(userId, orgId);
+                try (Tracer.SpanInScope ignored = traceSupport.withSpan(requestSpan)) {
+                    orchestrator.chat(request, new SseChatStreamSink(emitter, aborted), aborted);
+                    emitter.complete();
+                } catch (Exception e) {
+                    emitter.completeWithError(e);
+                } finally {
+                    PrincipalContext.clear();
+                    traceSupport.end(requestSpan);
+                }
+            }));
+        } catch (RuntimeException e) {
+            traceSupport.end(requestSpan);
+            throw e;
+        }
         return emitter;
     }
 

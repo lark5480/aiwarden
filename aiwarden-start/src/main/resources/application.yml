@@ -21,11 +21,29 @@ spring:
       port: ${AIWARDEN_REDIS_PORT:6379}
 
 # 运维面：Prometheus 指标端点（含 aiwarden_vector_orphan_total / aiwarden_ingest_stuck_total）
+# Trace（M4 / FR-OBS）：OTLP → docker compose 的 otel-collector → Tempo；采样率演示环境取 1.0。
 management:
   endpoints:
     web:
       exposure:
         include: health,prometheus
+  tracing:
+    sampling:
+      probability: ${AIWARDEN_TRACE_SAMPLE_PROBABILITY:1.0}
+    export:
+      otlp:
+        # 演示默认不导出：本机没有 collector 时避免每个 batch 刷连接错误；
+        # 起好 OTel Collector / Tempo 后设 AIWARDEN_TRACE_EXPORT_ENABLED=true（见 STATUS §3）。
+        enabled: ${AIWARDEN_TRACE_EXPORT_ENABLED:false}
+  opentelemetry:
+    tracing:
+      export:
+        otlp:
+          endpoint: ${AIWARDEN_OTLP_ENDPOINT:http://localhost:4318/v1/traces}
+  otlp:
+    metrics:
+      export:
+        enabled: false   # 指标仍走 Prometheus 端点；避免同一批指标双写 OTLP
 
 # P3 工具治理（FR-PERM-03 / ADR-009）：装配期定死的会话级可见面白名单——
 # 不在名单内的工具不可见、不可调用（显式禁 web_search/web_fetch 在 ToolWhitelist 代码层）
@@ -35,6 +53,12 @@ aiwarden:
       allowed: create_ticket,assign_ticket
     tool-invocation:
       processing-lease-seconds: 300   # PROCESSING 超租约可 CAS 重抢（「不确定可重试」）
+    # P5 断点续跑（M4 / FR-CKPT）：执行实例租约；崩溃实例的租约过期后由续跑实例接管。
+    # crash-before-checkpoint 是**测试专用**崩溃注入点（匹配节点名 → 该节点动作完成后、
+    # checkpoint 提交前 Runtime.halt(137)），生产配置必须留空。
+    checkpoint:
+      lease-seconds: 60
+      crash-before-checkpoint: ""
   # 问答编排（M3 / ADR-012）：模型通道缺省 mock（确定性替身；真实适配器接入后切换）
   chat:
     model: mock

@@ -31,7 +31,7 @@ class MockModelClientTest {
     }
 
     /** 3 条检索片段（验证标记个数与片段条数一一对应，而非恒为 [1]）。 */
-    private static ModelChatRequest twoSnippetRequest(String message) {
+    private static ModelChatRequest threeSnippetRequest(String message) {
         return new ModelChatRequest(
                 "你是 AIWarden 演示助手。\n【知识库片段】\n"
                         + "[1] doc=1 chunk=1\n退款政策说明。\n"
@@ -103,27 +103,29 @@ class MockModelClientTest {
     }
 
     @Test
-    void defaultIntent_answersWithContext() {
-        ModelChatResult result = client.chat(request("退款政策是什么？"), t -> {
-        });
-        assertThat(result.text()).contains("根据知识库检索结果回答");
-        assertThat(result.toolCalls()).isEmpty();
-    }
-
-    @Test
-    void defaultIntent_emitsInlineCitationMarkers_matchingSnippetCount() {
-        // Prompt 里 1 条片段 → 回答含 [1]；C 端据此把 [1] 渲染成可点击引用（FR-APP-02）
+    void defaultIntent_answersExtractively_withSnippetTextAndMarkers() {
+        // 抽取式作答：正文必须**含命中片段原文**并按序产出 [n] 标记（C 端据此渲染可点击引用，FR-APP-02）
         ModelChatResult one = client.chat(request("退款政策是什么？"), t -> {
         });
         assertThat(one.text())
-                .as("有 1 条检索片段时，正文必须产出 [1] 内联引用标记")
-                .contains("已找到 1 条相关依据[1]");
+                .as("1 条片段：正文含 [1] 与片段原文")
+                .contains("根据知识库检索结果")
+                .contains("[1] 退款政策说明。");
 
-        ModelChatResult three = client.chat(twoSnippetRequest("退款政策是什么？"), t -> {
+        ModelChatResult three = client.chat(threeSnippetRequest("退款政策是什么？"), t -> {
         });
         assertThat(three.text())
-                .as("片段条数与标记个数一一对应（顺序即片段序号）")
-                .contains("已找到 3 条相关依据[1][2][3]");
+                .as("3 条片段：标记个数与片段条数一一对应，且每条都引入原文（顺序即片段序号）")
+                .contains("[1] 退款政策说明。")
+                .contains("[2] 退款时限说明。")
+                .contains("[3] 退款流程说明。")
+                .doesNotContain("[4]");
+
+        ModelChatResult threeAgain = client.chat(threeSnippetRequest("退款政策是什么？"), t -> {
+        });
+        assertThat(threeAgain.text())
+                .as("抽取式作答仍是确定性的：同一输入两次调用文本完全一致")
+                .isEqualTo(three.text());
     }
 
     @Test

@@ -1,6 +1,6 @@
 # aiwarden-web
 
-AIWarden 的前端单页应用：C 端问答页 + B 端三页（一致性报告 / 用量看板 / 评测报告）。
+AIWarden 的前端单页应用：C 端问答页 + B 端四页（一致性报告 / 知识库与文档 / 用量看板 / 评测报告）。
 技术栈：Vue 3（`<script setup>` + TypeScript）+ Vite + Element Plus + vue-router；Markdown 渲染用 `marked` + `DOMPurify`，曲线用 `echarts` + `vue-echarts`。
 
 ## 怎么跑
@@ -31,17 +31,16 @@ docker compose up -d
 mvn -B -ntp -DskipTests install
 
 # 3) Spring Boot 应用（aiwarden-start，缺省端口 8080）
-#    Windows 本机需带 local profile（Kafka 端口被 Windows 保留区间占用的绕行，见根 README「Kafka 与 Windows 保留端口」）
+#    Windows 本机需带 local profile（Kafka 端口被 Windows 保留区间占用的绕行，见 docs/dev/troubleshooting.md 第 2 条）
 mvn -B -ntp -pl aiwarden-start spring-boot:run -Dspring-boot.run.profiles=local
 ```
 
-> ⚠️ **不要写成 `mvn -pl aiwarden-start -am spring-boot:run`**：`-am` 会把根聚合工程也放进 reactor，
-> 而 reactor 里每个模块都会执行该 goal → 根 pom 无 main class → 报 `Unable to find a suitable main class`；
-> 若去掉 `-am` 又会因兄弟模块不在本地仓库报 `Could not resolve dependencies`。
-> 多模块工程的 `spring-boot:run` 是「先 install，再单模块 run」两步。理由与替代方案见根 [`README.md`](../README.md)「本地怎么跑起来」。
+> ⚠️ **不要写成 `mvn -pl aiwarden-start -am spring-boot:run`**（会报 `Unable to find a suitable main class`）。
+> **多模块启动的正确两步与三种死法、IDE 启动方式、`5432 refused` 与 Kafka 保留端口的判据——
+> 唯一正文见 [`docs/dev/troubleshooting.md`](../docs/dev/troubleshooting.md)（第 1 / 2 / 4 条）。**
 >
-> **用 IDE 启动更省事**：直接跑 `com.aiwarden.start.AiwardenApplication#main`（IDE 自带模块 classpath，无需 install）。
-> 但**必须先 `docker compose up -d`**——否则报 `Connection to localhost:5432 refused`（那是数据库没起，不是代码问题）。
+> **用 IDE 启动最省事**：直接跑 `com.aiwarden.start.AiwardenApplication#main`（IDE 自带模块 classpath，无需 install），
+> 但两个硬前提不变：**基础设施已起** + Windows 本机带 profile `local`。
 
 后端就绪判断：`GET http://localhost:8080/actuator/health`。
 
@@ -78,10 +77,10 @@ VITE_API_BASE=http://localhost:8080
 src/
 ├── api/          # fetch 薄客户端 + 各接口函数与 TS 类型（字段名照抄 Java record 组件名）
 ├── components/   # MarkdownBlock（渲染+消毒+引用锚点）、IdentityDrawer（身份配置）
-├── router/       # / → /chat；/admin/{consistency,usage,eval}
+├── router/       # / → /chat；/admin/{consistency,knowledge,usage,eval}
 ├── stores/       # identity（reactive，不引 Pinia）
 ├── styles/
-└── views/        # ChatView（C 端）、admin/（B 端三页）
+└── views/        # ChatView（C 端）、admin/（B 端四页）
 ```
 
 ## 实现边界（如实说明）
@@ -89,8 +88,10 @@ src/
 - **`aiwarden_vector_orphan_total` 曲线不是历史序列**：该 Micrometer `Gauge` 只有当前值，后端没有历史查询接口。
   页面上的曲线是**本页对 `GET /actuator/prometheus` 轮询采样自绘**（手动「采样一次」或自动采样），
   只在页面打开期间累计点位，刷新即清空；持久化曲线需接入 Prometheus 查询，本次未做。
-- **按 traceId 查完整步骤时间线是占位区块**（一致性报告页底部）：当前仓库没有对应端点，区块内不发请求、不展示数据。
-  现状下看步骤耗时只有两条真实路径——C 端问答页的 `step` 事件、用量看板按 `stepNo` 过滤的计量明细。
+- **按 traceId 查完整步骤时间线（一致性报告页底部）**：走 `GET /api/v1/agent/runs/by-trace/{traceId}`，
+  展示数据库检查点时间线；span 明细需在 Grafana → Tempo 查看（本机 Tempo 未实跑，见 STATUS §3）。
+- **知识库与文档管理页**：建库 / 传文档 / 看摄入状态；上传接口返回体不含 `kbId`，当前库由页面存 `localStorage`。
+  摄入是异步的，状态 PENDING → INDEXED 由 Kafka 消费者推进，页面轮询列表（不做假实时）。
 - **用量看板的聚合在前端完成**：基于当前查询返回的同一份明细分组求和，因此只覆盖本次 `limit` 命中的行（不是全量统计）。
   后端 `limit` 上限 500（1–500，缺省 100）。
 - **成本金额是演示单价口径**：由后端按 `aiwarden.chat.cost.prompt-per-1k` / `completion-per-1k` 估算，非真实价目表。

@@ -15,6 +15,12 @@ const routes: RouteRecordRaw[] = [
     meta: { title: '一致性报告' },
   },
   {
+    path: '/admin/knowledge',
+    name: 'admin-knowledge',
+    component: () => import('@/views/admin/KnowledgeView.vue'),
+    meta: { title: '知识库与文档' },
+  },
+  {
     path: '/admin/usage',
     name: 'admin-usage',
     component: () => import('@/views/admin/UsageView.vue'),

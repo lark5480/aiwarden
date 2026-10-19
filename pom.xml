@@ -41,6 +41,8 @@
         <mcp-sdk.version>2.0.1</mcp-sdk.version>
         <!-- Testcontainers：SB 4.x 不再代为管理其版本（与 Boot 3.x 不同，须显式锁版） -->
         <testcontainers.version>2.0.5</testcontainers.version>
+        <!-- 压测探针默认排除；手动执行时用 -Dsurefire.excludedGroups=manual 覆盖（见 M4 压测报告） -->
+        <surefire.excludedGroups>load</surefire.excludedGroups>
     </properties>
 
     <dependencyManagement>
@@ -134,7 +136,12 @@
                         <spring.kafka.listener.auto-startup>false</spring.kafka.listener.auto-startup>
                         <aiwarden.outbox.relay.enabled>false</aiwarden.outbox.relay.enabled>
                         <aiwarden.reconcile.enabled>false</aiwarden.reconcile.enabled>
+                        <!-- Trace 照常生成（span 树可断言），但不向 collector 导出——测试不依赖外部 OTLP 端点 -->
+                        <management.tracing.export.otlp.enabled>false</management.tracing.export.otlp.enabled>
                     </systemPropertyVariables>
+                    <!-- 压测探针（@Tag("load")）不随 mvn verify 跑：minutes 级，且会污染测试数口径。
+                         手动执行见 docs/benchmarks/M4-load-report.md（-Dgroups=load -DexcludedGroups=none）。 -->
+                    <excludedGroups>${surefire.excludedGroups}</excludedGroups>
                 </configuration>
             </plugin>
         </plugins>

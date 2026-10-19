@@ -24,6 +24,7 @@ const valid = computed(() => identityValid())
       <el-menu :default-active="activeMenu" mode="horizontal" router class="shell__menu" :ellipsis="false">
         <el-menu-item index="/chat">C 端 · 问答</el-menu-item>
         <el-menu-item index="/admin/consistency">B 端 · 一致性报告</el-menu-item>
+        <el-menu-item index="/admin/knowledge">B 端 · 知识库与文档</el-menu-item>
         <el-menu-item index="/admin/usage">B 端 · 用量看板</el-menu-item>
         <el-menu-item index="/admin/eval">B 端 · 评测报告</el-menu-item>
       </el-menu>

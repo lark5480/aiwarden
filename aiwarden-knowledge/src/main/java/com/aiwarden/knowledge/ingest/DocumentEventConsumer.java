@@ -4,12 +4,18 @@ import com.aiwarden.common.tenant.TenantContext;
 import com.aiwarden.core.event.DocumentEventTypes;
 import com.aiwarden.governance.ingest.IngestLedgerGuard;
 import com.aiwarden.governance.messaging.KafkaHeadersCarrier;
+import com.aiwarden.governance.tracing.TraceSupport;
+import io.micrometer.tracing.Span;
+import io.micrometer.tracing.Tracer;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
+import org.apache.kafka.common.header.Header;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Component;
 import tools.jackson.databind.ObjectMapper;
+
+import java.nio.charset.StandardCharsets;
 
 /**
  * 文档事件消费者（幂等消费骨架，FR-ING-01）：
@@ -26,19 +32,30 @@ public class DocumentEventConsumer {
     private final ObjectMapper objectMapper;
     private final IngestLedgerGuard ledgerGuard;
     private final DocumentIngestHandler ingestHandler;
+    private final TraceSupport traceSupport;
 
     public DocumentEventConsumer(ObjectMapper objectMapper,
                                  IngestLedgerGuard ledgerGuard,
-                                 DocumentIngestHandler ingestHandler) {
+                                 DocumentIngestHandler ingestHandler,
+                                 TraceSupport traceSupport) {
         this.objectMapper = objectMapper;
         this.ledgerGuard = ledgerGuard;
         this.ingestHandler = ingestHandler;
+        this.traceSupport = traceSupport;
     }
 
     @KafkaListener(topics = {DocumentEventTypes.INDEX_REQUESTED, DocumentEventTypes.DELETE_REQUESTED},
             groupId = "aiwarden-ingest")
     public void onDocumentEvent(ConsumerRecord<String, String> record) {
-        TenantContext.runWithCarrier(new KafkaHeadersCarrier(record.headers()), () -> process(record));
+        // Kafka 消费边界（FR-OBS-02）：生产端在 outbox 写入时捕获 traceparent，这里恢复父上下文。
+        Span span = traceSupport.startSpan("kafka.consume." + record.topic(), traceParentOf(record));
+        span.tag("messaging.system", "kafka");
+        span.tag("messaging.destination.name", record.topic());
+        try (Tracer.SpanInScope ignored = traceSupport.withSpan(span)) {
+            TenantContext.runWithCarrier(new KafkaHeadersCarrier(record.headers()), () -> process(record));
+        } finally {
+            traceSupport.end(span);
+        }
     }
 
     private void process(ConsumerRecord<String, String> record) {
@@ -69,5 +86,10 @@ public class DocumentEventConsumer {
             ledgerGuard.markFailed(payload.docId(), payload.version(), e.getMessage());
             throw e;
         }
+    }
+
+    private static String traceParentOf(ConsumerRecord<String, String> record) {
+        Header header = record.headers().lastHeader(TraceSupport.TRACEPARENT);
+        return header == null ? null : new String(header.value(), StandardCharsets.UTF_8);
     }
 }

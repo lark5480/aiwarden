@@ -17,7 +17,8 @@ import java.util.concurrent.Callable;
  *
  * <p><b>为什么不用 TransmittableThreadLocal（FR-OBS-03 结论）</b>：TTL 解决的是「池化线程复用导致
  * 装饰丢失」的问题，而虚拟线程是不可复用的一次性线程，TTL 的 decorate 语义不适用。两类线程形态
- * 统一走显式 capture/apply，一条规则覆盖、语义简单且可测——决策与单测证据见 DECISIONS.md ADR-003。
+ * 统一走显式 capture/apply，一条规则覆盖、语义简单且可测——决策与单测证据见
+ * docs/adr/ADR-003-tenant-context-capture.md。
  *
  * <p><b>缺失即拒绝</b>：上下文缺失时 {@link #requireTenantId()} 抛
  * {@link MissingTenantContextException}，<b>不回落默认租户</b>（FR-TEN-02）。

@@ -27,10 +27,13 @@ public class ChatMeteringWriter {
 
     /** 记录一次模型调用（tool=null——模型维度与工具维度在明细表可区分）。 */
     @Transactional
-    public void recordModelCall(long tenantId, String sessionId, int stepNo, String model,
+    public void recordModelCall(long tenantId, long runId, String sessionId, int stepNo, String model,
                                 int promptTokens, int completionTokens, int latencyMs) {
+        // 同一 run 的同一逻辑步骤重做时键不变：消费端据此仲裁，崩溃续跑不会重复计费。
+        String dedupKey = "model:" + runId + ":" + stepNo;
         outboxWriter.append(tenantId, 0, MeteringEventTypes.CALL_RECORDED,
                 objectMapper.writeValueAsString(new CallMeteringPayload(
-                        null, model, sessionId, stepNo, latencyMs, promptTokens, completionTokens)));
+                        null, model, sessionId, stepNo, latencyMs, promptTokens, completionTokens,
+                        dedupKey)));
     }
 }

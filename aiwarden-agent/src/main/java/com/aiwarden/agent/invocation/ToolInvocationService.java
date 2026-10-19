@@ -276,7 +276,8 @@ public class ToolInvocationService {
         int meteredTokens = Math.toIntExact(promptTokens);
         outboxWriter.append(tenantId, invocationId, MeteringEventTypes.CALL_RECORDED,
                 objectMapper.writeValueAsString(new CallMeteringPayload(
-                        toolName, null, sessionId, stepNo, latencyMs, meteredTokens, 0)));
+                        toolName, null, sessionId, stepNo, latencyMs, meteredTokens, 0,
+                        "tool:" + invocationId)));
     }
 
     private String canonicalJson(Map<String, Object> input) {

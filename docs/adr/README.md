@@ -2,7 +2,9 @@
 
 > **这份目录是什么**：本项目的架构与关键技术决策记录，[PRD §7.4](../PRD.md) 规定其为首批 ADR 的正式落点。
 > **组织方式**：**一文件一 ADR**（`ADR-00X-<slug>.md`），本页是索引。拆分自原单文件 `docs/DECISIONS.md`
-> （2026-10-07 拆分，内容逐行校验零改动）；`docs/DECISIONS.md` 保留为重定向页，指向本目录。
+> （2026-10-07 拆分，内容逐行校验零改动）。**`docs/DECISIONS.md` 重定向残页已于 2026-10-10 删除**——
+> 它当年只为两处源码注释与 PRD 的旧链接保留，那些引用已全部改指本目录；残页自身的索引（写到 ADR-011）已过期。
+> `docs/research/06` 里「落点为 `docs/DECISIONS.md`」的表述属裁决时点的历史记录，**不回改**（见 [`AGENTS.md`](../../AGENTS.md) §2 冻结资产例外）。
 >
 > **体例**（每个 ADR 文件内含）：
 > - `状态 / 背景 / 决策 / 依据 / 代价与放弃 / 验证`；
@@ -26,8 +28,10 @@
 | [ADR-008](ADR-008-visibility-acl-model.md) | 可见集 ACL 模型与下推算法（主体、四级语义、拒绝与审计） | 已采纳（2026-10-07） | ✔（切片①实测 / M2 复核） |
 | [ADR-009](ADR-009-tool-side-effect-governance.md) | 工具副作用治理机制（幂等键状态机、补偿逆序、工具可见面） | 已采纳（2026-10-07） | ✔（切片②回填 / M2 复核） |
 | [ADR-010](ADR-010-quota-strong-consistency.md) | 配额强一致机制（Redis Lua 预扣减、幂等、对账、限流） | 已采纳（2026-10-07） | ✔（切片③回填 / M2 复核） |
-| [ADR-011](ADR-011-governance-tax-and-mcp.md) | 治理税度量方法（四项微计时口径）与 MCP 最小版取舍 | 已采纳（2026-10-07） | ✔（切片④回填） |
-| [ADR-012](ADR-012-chat-orchestration-and-eval.md) | 问答编排与评测口径（Mock 模型替身 + 真实治理管道） | 已采纳（2026-10-07） | — |
+| [ADR-011](ADR-011-governance-tax-and-mcp.md) | 治理税度量方法（四项微计时口径）与 MCP 最小版取舍 | 已采纳（2026-10-07） | ✔（切片④回填 / M4 压测口径） |
+| [ADR-012](ADR-012-chat-orchestration-and-eval.md) | 问答编排与评测口径（Mock 模型替身 + 真实治理管道） | 已采纳（2026-10-07） | ✔（M3 切片①②③④⑤回填） |
+| [ADR-013](ADR-013-agent-checkpoint-and-resume.md) | Agent Checkpoint 与断点续跑（确定性 DAG + 版本 CAS + 崩溃注入验收） | 已采纳（2026-10-19） | ✔（2026-10 计量幂等） |
+| [ADR-014](ADR-014-observability-trace.md) | 全链路 Trace（OTel + 四类异步边界 + traceparent 持久化） | 已采纳（2026-10-19） | — |
 
 **新增 ADR 的步骤**（保持本目录可用）：
 

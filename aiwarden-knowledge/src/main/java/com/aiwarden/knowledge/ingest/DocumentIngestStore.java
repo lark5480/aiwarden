@@ -137,7 +137,8 @@ public class DocumentIngestStore {
         int latencyMs = (int) ((System.nanoTime() - embedStartNanos) / 1_000_000);
         outboxWriter.append(tenantId, docId, MeteringEventTypes.CALL_RECORDED,
                 objectMapper.writeValueAsString(
-                        new CallMeteringPayload("embedding", "deterministic-demo", null, null, latencyMs, 0, 0)));
+                        new CallMeteringPayload("embedding", "deterministic-demo", null, null,
+                                latencyMs, 0, 0, null)));
     }
 
     /** 待摄入文档读取模型（含 kb.org_id，供 meta 可见集装配）。 */

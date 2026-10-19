@@ -146,7 +146,7 @@ class GovernanceTaxContainersTest {
 
         // ③ 计量事件（写 outbox 行；Kafka 发送在 Relay 异步、不计入本环节）
         String payloadJson = objectMapper.writeValueAsString(
-                new CallMeteringPayload("tax-probe", null, "tax-bench", 1, 1, 100, 0));
+                new CallMeteringPayload("tax-probe", null, "tax-bench", 1, 1, 100, 0, null));
         long[] metering = measureWithIndex(i ->
                 outboxWriter.append(TENANT, 970_000L + i, "llm.call.recorded", payloadJson));
         reportAndAssert("metering-event-append", metering);

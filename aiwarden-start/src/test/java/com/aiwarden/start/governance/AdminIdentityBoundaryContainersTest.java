@@ -55,6 +55,7 @@ class AdminIdentityBoundaryContainersTest {
             "/api/v1/admin/audit?limit=1",
             "/api/v1/admin/usage?limit=1",
             "/api/v1/admin/consistency/report",
+            "/api/v1/admin/consistency/reports?limit=1",
             "/api/v1/admin/eval/report",
             "/api/v1/admin/billing/reconcile",
             "/api/v1/admin/budgets/1",

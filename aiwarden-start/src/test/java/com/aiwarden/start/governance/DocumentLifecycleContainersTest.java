@@ -118,6 +118,18 @@ class DocumentLifecycleContainersTest {
 
         assertThat(chunkCount(uploaded.docId())).isEqualTo(EXPECTED_CHUNKS);
         assertThat(vectorCount(uploaded.docId())).isEqualTo(EXPECTED_CHUNKS);
+
+        // M4 / FR-ADM-02：B 端管理页的数据源——文档列表能看到摄入状态（不必逐个 id 调 /status）
+        HttpResponse<String> listResponse = send("GET",
+                "/api/v1/knowledge-bases/" + kbId + "/documents", TENANT_A, null);
+        assertThat(listResponse.statusCode()).isEqualTo(200);
+        var documents = objectMapper.readTree(listResponse.body());
+        assertThat(documents.size()).isEqualTo(1);
+        assertThat(documents.get(0).path("id").asLong()).isEqualTo(uploaded.docId());
+        assertThat(documents.get(0).path("status").asString()).isEqualTo("INDEXED");
+        assertThat(documents.get(0).path("version").asInt()).isEqualTo(1);
+        assertThat(documents.get(0).path("updatedAt").asString()).isNotBlank();
+
         Integer dims = jdbcTemplate.queryForObject("""
                 SELECT vector_dims(embedding) FROM t_vector WHERE meta->>'docId' = ? LIMIT 1
                 """, Integer.class, String.valueOf(uploaded.docId()));

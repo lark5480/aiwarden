@@ -68,3 +68,21 @@ PRD §11.1 止损条款 **L4**：M2 末测不出 → 写「待验证」并说明
 实现：白名单工具经**工具名归一化**后暴露（`McpServerContainersTest` 断言 tools/list = create_ticket/assign_ticket）；
 tools/call 复用 P3 管道（幂等重放 replayed=true、不建第二张单）；身份经 `McpTransportContext` 显式携带。
 两条新坑已入 AGENTS §4（PER_CLASS × Testcontainers 顺序；MCP handler 线程边界）。
+
+## 修订（2026-10，M4 压测口径）
+
+**补齐 M2 未测的三组口径**：审计留痕开销、OTel span 开销、每请求治理总开销 / 吞吐拐点 / P99。
+详细方法与逐轮数字（含原始输出、机器规格、复现命令）的唯一正文是
+[`docs/benchmarks/M4-load-report.md`](../benchmarks/M4-load-report.md)；本节只钉方法与边界，不复制数字。
+
+- **六项组件级微计时**：可见集 / 检索下推 / 计量事件 / 配额（Redis Lua）/ **审计留痕** / **OTel span**；
+  warmup 50 + 采样 200，nearest-rank 报 P50 / P95 / P99（µs 精度，避免 `StepRecord.elapsedMs` 的毫秒粒度
+  把亚毫秒环节全部记成 0）。
+- **端到端负载**：并发 1 / 2 / 4 / 8 / 16 / 32，每档固定 80 请求，报 RPS、P50/P95/P99、错误数；
+  吞吐拐点按「RPS 不再随并发增长、P99 明显抬升」判定。
+- **总开销是「相加口径」**：六项 P50 相加，明确标注不含模型 / 业务逻辑，也不是「关掉治理再测一遍」的
+  差分实验——后者需要可开关的治理切面，本轮不做。
+- **边界**：单机、Testcontainers 的 PostgreSQL/Redis 与应用同机竞争 CPU/IO，模型为确定性 Mock；
+  数字代表固定开销与容量边界，**不是线上容量承诺**。
+- **口径落点**：详细数字进 `docs/benchmarks/M4-load-report.md`（新增权威源，经 06 号裁决 26 确认）；
+  `STATUS.md` §2 只保留结论摘要 + 指针，README 第一屏是 STATUS 的投影。

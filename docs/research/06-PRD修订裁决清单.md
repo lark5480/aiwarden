@@ -496,3 +496,193 @@ README 第一屏结论表是其**对外投影**，更新方向不可逆（STATUS
 
 **【落到文档的动作】** PRD §8 M4 行标注可选实验状态；STATUS §3 增补 M4 已知边界
 （P1 P95 / Tempo / Loki / K8s / halt 语义 / 前端未点击实测）；FAILURE.md 的 D 类登记「Loki / Tempo 未实跑」。
+
+---
+
+## 28. 全项目审计（2026-10-19）暴露的静默缺口：对账补「摄入停摆」判据（含三条子判据），repair 补事件重驱动
+
+**【裁决】**
+- **`mismatchCount` 第二项重定义为「摄入停摆文档数」**：三条子判据（**当前版本**的索引事件 `FAILED` /
+  **当前版本**账本 `PROCESSING` 超 5 分钟 / 文档 `PENDING`·`PROCESSING` 超 5 分钟且未软删）
+  **按 doc_id 去重取并集**，`detailsJson` 新增 `stuckIngest`（逐条带 `reason`）与 `failedOutboxEvents`；
+  指标沿用 `aiwarden_ingest_stuck_total`，语义随判据扩大，不另立新名。
+- **`POST /repair` 增加第二类显式动作**：**当前版本、文档存在且未收敛**的索引事件重驱动
+  （`FAILED → PENDING`、`retry_count` 归零），响应契约加 `redrivenEvents`。ADR-006 追加修订段。
+  **删除事件与旧版本索引事件不重驱动**（删除事件重放会 purge 全部版本；旧版本事件会覆盖新版本产物）。
+- **PRD §12 P1 行与 FR-ING-06 同步**：「不允许静默放过」从此覆盖摄入路径，不再只覆盖删除残留。
+- **反向守卫（同一轮注入实验逼出来的）**：`FAILED` 事件**只在文档未收敛**时才计入停摆——把一条已被
+  成功消费的索引事件改回 `FAILED`，无此限制会把已 `INDEXED` 的文档误报成不一致；
+  且**判据、`failedOutboxEvents` 计数、`repair` 的重驱动三处必须共用同一过滤条件**。
+
+**【理由】** 现场证据：本机 `t_outbox_event` id=1 重试到上限置 `FAILED`，文档 1 停 `PENDING` 九天、
+ledger 零行，旧三条判据全部无感——`mismatch_count=0` 且 `aiwarden_ingest_stuck 0.0`。
+这与本项目的立身之本（「不一致必须可查」）直接冲突，且属 AGENTS §4 那个熟悉家族：**不报错、只是静默不生效**。
+判据按「数据形态」穷举而不是按「链路命名」穷举，是本轮的可迁移教训。
+
+**【落到文档的动作】** ADR-006 修订段；STATUS §2（P1 行的口径与本轮实测数字）与 §3（边界：
+重驱动不等于收敛、事件行缺失不自动补发）；troubleshooting §5（评测页 404 的前提是表为空）、
+§7（`detail_ref` 新键名）、§8（判据改为「两条残留 + 摄入停摆」+ 当前版本索引事件重驱动）；AGENTS §4 增一条可迁移判据；
+前端一致性页 `stuckProcessing` 磁贴换成「摄入停摆（stuckIngest）」并新增停摆清单表。
+
+**【验证】** `ConsistencyReconcileContainersTest` 新增用例多段断言（命中 → 去重 → 重驱动后仍未收敛 →
+摄入完成才归零 → 假阳性守卫）；现场差分：同一库同一数据，修复前 `POST /scan` 报 `mismatchCount=0`、
+修复后报 `1`（reason `OUTBOX_FAILED`），`/repair` 返回 `redrivenEvents=1`，relay 重发 → 消费者置
+`INDEXED` → 复扫 `mismatchCount=0`，该文档重新可检索。
+
+---
+
+## 29. 实测数字口径校正：评测 P95 的抖动带、压测拐点的判据措辞、单类复跑命令的必需 flag
+
+**【裁决】**
+- **评测 P95 不再书写单点值**：本轮从干净 clone 两次独立实测为 **116ms / 224ms**，
+  而 STATUS 旧正文写 23ms（抖动历史 44/52/58ms）——差 5–10 倍。裁决把 §2 的「评测」行改为
+  **抖动范围 + 环境说明（66–224ms，同日 3 次样本）**（评测门禁与容器/后端同机跑，P95 受同机负载主导，
+  样本量 24、nearest-rank），并保留 `avgCost=0.000869`（本轮精确复现，是确定性可复算的量）。
+  README 原先多写的 76ms 无来源，已删除并与 STATUS 对齐。
+- **压测「拐点=并发 4」的措辞收紧**：报告 §3 的判据由「RPS 不再随并发增长」改为
+  **「以 P99 抬升为主判据、RPS 平台为次判据」**，并明写 C16 的 80.61 RPS 高于 C4、落在报告自陈的
+  10–30% 抖动带内——原措辞与自家数据表读起来互相矛盾（审计 P1-04）。数字不回改，只改判据表述。
+- **单类复跑命令必须带 `-Dsurefire.failIfNoSpecifiedTests=false`**：`-pl aiwarden-start -am test
+  -Dtest=<单类>` 在没有匹配类的兄弟模块（`aiwarden-common`）上直接 BUILD FAILURE（实测 1.5s 失败）。
+  命令正文归位 STATUS §2，troubleshooting §5 只留指针。
+
+**【理由】** 三处都是「文档写了、照抄就失败或读起来矛盾」的同一族问题：**口径级数字必须能当场复算，
+判据级结论必须与自己附的表一致**。审计的价值正在这里——测试全绿不代表投影数字成立。
+
+**【落到文档的动作】** STATUS §2（评测行、治理税行、复现口径三条 bullet、测试数行）；
+`docs/benchmarks/M4-load-report.md` §3（判据段就地改写，属权威源的措辞修正，非历史回改）；
+README 第一屏同步投影（单向 STATUS → README）；troubleshooting §5。
+
+---
+
+## 30. 审计修复的安全边界：重驱动限定「当前版本索引事件」，账本判据按当前版本过滤
+
+**【裁决】**
+- **`repair` 只重驱动当前版本、文档存在且未收敛的索引事件**（`document.index.requested`），
+  条件收敛为一个 `REDRIVABLE_FAILED_INDEX_EVENT`（判据 / `failedOutboxEvents` 计数 / repair 三处共用）。
+  **删除事件不重驱动**：删除事件重放会重新 `purgeDocumentArtifacts`（清全部版本），
+  同名重传的新文档可能被清空；删除的后果由残留切片 / 孤儿向量判据负责。
+  **旧版本索引事件不重驱动**：幂等键 `(docId, version)` 只挡重复投递，挡不住旧事件晚到；
+  旧事件会按旧 version 写回当前内容并删掉新版本切片。
+- **消费端双守卫**：`DocumentEventConsumer` 在 claim 前用 `t_document.version` 拒绝**旧版本**事件
+  （文档不存在时放行，让 handler 走 `DocumentNotFoundException` 终态，避免静默跳过）；
+  `DefaultDocumentIngestHandler` 读取文档后再校验一次，覆盖“检查后到读取前又重传”的竞态。
+- **`LEDGER_PROCESSING` 判据只算当前版本、当前未收敛的文档**：旧版本卡死（当前版本已 `INDEXED`）
+  不再误报；孤儿账本仍保留为可见异常，由人工核查。
+- **前端 repair 只对可修复项启用**（残留文档 / `OUTBOX_FAILED`），执行后自动重扫一轮；
+  文案明确「重驱动 ≠ 收敛」，不再把 `LEDGER_PROCESSING` 说成可重驱动。
+
+**【理由】** 第一轮审计的修复只解决了“发现”，第二轮注入实验证明“修复动作本身”也需要安全边界：
+`type LIKE 'document.%'` 会把删除事件也纳进来，旧版本事件也没有版本校验。两者都能在
+“删除 FAILED → 同名重传 → 文档 PENDING”或“v2 在飞 → v1 旧事件被重驱动”时造成数据丢失/覆盖。
+这与本项目「repair 幂等安全」的承诺直接冲突。
+
+**【落到文档的动作】** ADR-006 修订段（补安全边界与消费端守卫）；PRD FR-ING-06（判据三类、
+只重驱动当前版本索引事件）；STATUS §2/§3（口径、测试数 170、边界）；troubleshooting §8
+（验收定义指针 + 删除/旧版本不重驱动）；AGENTS §4（重驱动双守卫）；README 同步；
+前端一致性页（repair 可修复性、自动刷新、文案）；`ConsistencyReconcileContainersTest`
+新增删除事件 / 旧版本索引 / 旧版本账本三个回归。
+
+**【验证】** `mvn -B -ntp verify` → **170 个测试全绿**（`16 + 8 + 146`，0 失败 0 跳过）；
+`ConsistencyReconcileContainersTest` 5/5：新增用例分别断言删除事件 FAILED + 同名重传不被重驱动
+（事件仍 `FAILED`、文档仍 `PENDING`）、旧版本索引事件不被重驱动、旧版本账本 `PROCESSING` 不被误报。
+前端 `pnpm build` 通过（`vue-tsc --noEmit` + `vite build`）。
+
+---
+
+## 31. KB / Trace 页第二轮浏览器实测：修正第 6 条的「400 + 原文」旧表述，落两条身份判据
+
+**【裁决】**
+- **纠正 `dev/troubleshooting.md` 第 6 条的旧表述**：原写「身份头缺失或非法时，页面会渲染红色告警
+  并附后端原文（实测：非法租户头 → 400 + 原文）」——**该实测不在浏览器里**，且当前 UI 走不到那条分支。
+  前端有两道守门（`IdentityDrawer.vue` 保存时校验数字串，非法值 toast 拦下、不落 localStorage、不发请求；
+  `stores/identity.ts` 读回时空 / 空白值回落缺省 `tenant=1 / user=1`），于是缺失 / 非法头的请求
+  **在页面里发不出去**，`App.vue` 的红色告警与页面 400 原文分支属防御性代码。
+- **新增第 11 / 12 条**：11 = 「缺失即 400」的演示分工（后端与容器测试层证，页面演前端拦截与跨租户空态）；
+  12 = 不存在的租户打开 B 端**全空但接口全 200**（列表 `200 []`、真实 trace 跨租户查 **404 不是 403**），
+  整片空 + 无报错时**先查当前租户身份**再怀疑数据。
+- STATUS §2「前端独立口径」补同日第二轮实测（traceId 取自浏览器侧 `X-Trace-Id` 响应头并回查 10 步、
+  KB 全链路收敛到数据面自证），§3 增 M4 边界 ⑦，§4 的「只剩指针级点击 + 截图」改为已可用。
+- **前端不改（本轮定调，避免反复讨论）**：`stores/identity.ts` 的「空值回落缺省 `1`」是开发态有意取舍
+  （填一次常驻），安全上无缺口（后端自己校验，前端守门不构成信任边界）。真要在页面上演 400，
+  代价最小的是**在抽屉里加「不发送该头」的显式开关**，而不是把空值重新解释成「不发」——
+  判据正文见 `dev/troubleshooting.md` 第 11 条末段。
+
+**【理由】**「缺失即 400」是**后端与测试两层**的口径（`AdminIdentityBoundaryContainersTest` 逐端点断言），
+旧表述把它写成浏览器里演过的动作，属**未覆盖窗口被当成已验证**——与本项目反复强调的「验证本身要自证」
+同一族。本轮实测只能证到前端拦截与跨租户空态两层，就只写这两层。
+
+**【落到文档的动作】** `docs/dev/troubleshooting.md`（第 6 条就地纠正 + 新增第 11 / 12 条）；
+`docs/STATUS.md`（§2 前端独立口径补记、§3 ⑦、§4 一条）；本条裁决。
+**本轮无代码改动、无新测试**，故测试数与 §2 其余实测数字不变；README 第一屏未投影本节内容，不需同步。
+
+**【验证】** 纯文档改动。四条收尾校验中跑了①相对链接（改动文件全部无断链）与②副本计数
+（「页面会渲染红色告警」这句旧正文只剩第 6 条的纠正句与本条记录两处）。
+**实测产物已就地清掉并自证不留新形态**：本地 dev 库的 `browser-test-kb`（id=5）连同它的文档行与
+摄入账本行一起删除（删前核对：无切片 / 无向量 / 无 ACL / 无 outbox 残留 / 无审计行），
+删后手动 `POST /admin/consistency/scan` → `mismatchCount=0`、`orphanVectors=0`、`failedOutboxEvents=0`。
+**本轮实测手法照旧如实标注**：交互仍是页面内派发真实 DOM 事件 + 读 DOM / 抓请求头断言，
+**未做指针级点击**（无可见 surface 时 `NATIVE_BROWSER_VIEWPORT_UNAVAILABLE` 依旧成立）；
+新增的能力只是**截图存证**（KB 页与 Trace 时间线各一张 PNG）。
+
+---
+
+## 32. 文档受众重划第二轮：AGENTS §4 正文迁 `docs/PITFALLS.md`，README 收为「概览 + 快速启动」
+
+**【裁决】**
+- **AGENTS.md 只留红线**：§4「已知的坑与约定」157 行正文整体迁往新建的权威源 `docs/PITFALLS.md`
+  （`P01…P20` 扁平编号，本版一次性分配、后续只追加不重排），AGENTS §4 **保留标题号**、退化为
+  「认症状 + 条目号」的红线速查（最常踩、踩了最贵的五条）。全仓约 25 处按「AGENTS.md §4」写的历史指向
+  （含 `docs/adr/`、`docs/research/`、`docs/benchmarks/` 里的冻结记录）**不回改**，由两处声明解析：
+  PITFALLS 文首「本文件即旧 §4 正文」+ 本条裁决。
+- **npipe 绕行归属改判**（原三处互相推诿，是本轮唯一的**结构性自相矛盾**）：AGENTS §4 开头声明「本机环境类
+  排障不在本节」，却持有该条完整正文；`dev/troubleshooting.md` 第 10 条把正文推回 AGENTS；根 README 第三次
+  指过去。现判给 `PITFALLS.md` P10——理由：处置本身是 maven 参数与探测策略，属「测试怎么跑起来」的机制层，
+  不是「这台机器为什么跑不起来」。
+- **文档收尾校验命令从 AGENTS §2 迁出**到新建的 `docs/dev/doc-selfcheck.md`，并**新增四条锚点断言**：
+  `wc -l AGENTS.md ≤ 100`、`## 4.` 标题号仍在、troubleshooting 小节数 13 未变、活文档不再把 §4 当机制坑正文。
+- **README 的受众边界**：以「项目概览 + 快速启动」为主，保留调研方法声明与文档地图的指针。「一次答错怎么按 traceId 定位」整段迁
+  `ADR-014` 末尾新增的 `## 使用配方` 段（span 名的唯一正文本来就在那份 ADR 里，追加不新增事实；C/B 时间线口径从 STATUS §2 归位到该段，STATUS 降为一句指针）；
+  竞品对比表压成三句 + 指针 `research/03`；结论表**只投影数字与达标结论**——原先连 STATUS §2 的解释性长句
+  一起抄的部分删除（**投影 = 数字，不等于论证**）。
+- **修四处陈旧 / 矛盾表述**：① README 说 troubleshooting「实测过的五条」，实为 13 节（§0–§12）；② README 文档地图写
+  「ADR-001 ~ 012」，实已到 014——改为不写区间、直接指针 `docs/adr/README.md`；③ `docs/README.md` 一处链接
+  标签写 `../STATUS.md` 而目标是 `STATUS.md`；④ `docs/FAILURE.md` 尾注自述「C 13 · D 14 · 共 48」，
+  按「表数据行 = `^|` 行数 − 表头 − 分隔行」实测为 **C 15 · D 16 · 共 52**。
+- **`aiwarden-web/README.md` 去重**：后端启动全序列（`docker compose` / `install` / `spring-boot:run`
+  + 三种死法 + 评测 404 说明）改为指针，只留前端专属内容（pnpm 脚本 / Vite 代理 / 身份头 / 目录 / 实现边界）。
+- **本轮复核补正（追加审计，不改 1–31 条）**：① `docs/README.md` 冻结资产表去掉硬编码的「ADR-001 ~ 014」；
+  ② `docs/adr/README.md` 的「新增 ADR 步骤」改为指向 §2 的动作序列（索引页是活程序，不属于 ADR 决策正文）；
+  ③ 根 README 的「3 份原始调研报告都是 03 点名的取证底稿」改为「其中 2 份」，与 STATUS §5 对齐；
+  ④ 根 README 的调研方法指针改指 `research/03 §4.3`，消除与 `research/README` 的互指；
+  ⑤ C/B 时间线口径归位到 ADR-014，STATUS §2 降为一句指针；
+  ⑥ P05 的「112 个测试」改为「全量测试全绿」，避免与当前 170 混淆；
+  ⑦ `aiwarden-web/README` 修正「页面上演不到」并补 §9 指针。
+
+**【理由】** AGENTS §2 自己立的纪律是「一条事实只有一个正文」，但审计出 **9 类事实各有 2–4 份正文**：启动命令 4 份、
+Windows 9092 绕行 4 份、评测报告页 404 说明 4 份、机制坑 3 份、文档地图 3 份、`-betaNN` 版本号解释 3 份、
+对账停摆判据 4 份（AGENTS / troubleshooting §8 / STATUS §2+§3 / ADR-006）、测试计数口径 2 份、
+停摆守卫 2 份。加上上面那处「三处互指」的矛盾，**本轮不是搬运整理，而是按仓库既有纪律归位**——
+判据与裁决 21 相同：**副本数决定漂移概率，与是否细心无关**。
+
+**【落到文档的动作】** 新建 `docs/PITFALLS.md`、`docs/dev/doc-selfcheck.md`；
+`AGENTS.md` 294 → **100**；`README.md` 209 → **152**；`docs/STATUS.md` 284 → **274**；
+`docs/dev/troubleshooting.md` 329 → **327**（**小节序号未变，仍 13 节**）；`aiwarden-web/README.md` 99 → **84**；
+`docs/README.md` 52 → **56**（活文档表 + 路由表各补一行）；`docs/FAILURE.md` 94 → **95**
+（C/E 类 15 处「AGENTS.md §4」改指 PITFALLS 条目号 + 尾注计数纠正）；`docs/PRD.md` 文首「本文档不承载什么」
+与 §8.1 两处的坑落点改指 PITFALLS；`docs/adr/ADR-014` 末尾追加「使用配方」段。
+**冻结资产不回改**：`docs/research/`（含本文件既有条目）、各 ADR 决策正文（ADR-014 追加段除外）、`docs/benchmarks/`；`docs/adr/README.md` 作为索引更新其「新增 ADR 步骤」，不属于决策正文。
+
+**【验证】** 纯文档改动，**无代码、无测试改动**，`mvn -B -ntp verify` 的 170 与 §2 全部实测数字不变。
+跑完 `docs/dev/doc-selfcheck.md` 的全部校验：
+① 相对链接——全仓 `.md` 遍历（改成遍历后不再维护文件清单，清单本身就是会漏的第三份正文），**0 断链**；
+② 副本计数——「保留端口区间」的根因正文只剩 troubleshooting 第 2 条（另两处命中是 ADR-012 的冻结记录与
+FAILURE 的一行索引）；旧归属表述「该条正文留在 AGENTS」全仓归零；
+③ 权威源纯度——从 STATUS §2 提取的实测数字，在 PRD / FAILURE / PITFALLS / troubleshooting 中，除 PRD 的
+`裁决 28/30`（已确认是裁决编号、不是数字副本）外命中 **0**（README 是允许的投影，不计；扫描集不含 AGENTS /
+doc-selfcheck，命令不扫这两处）；该误报形态已写进 doc-selfcheck ③ 的注释；
+④ 自述数字对齐——就是这一条抓到 FAILURE 尾注少计 4 条（见上），已纠正；计数核法落在 doc-selfcheck ④，FAILURE 尾注只留计数 + 指针；
+⑤ 锚点断言——`wc -l AGENTS.md` = 100（硬上限达标）、`grep -n '^## 4\.'` 命中、troubleshooting 小节数 13 未变、
+活文档里已无把 AGENTS §4 当**机制坑正文**的表述（⑤-d 只命中 PITFALLS 文首兼容声明两行 + docs/README 路由指针一行）。
+**遗留判据**：PRD FR-ING-06 里仍列着三类判据——那是**验收口径**（要检测什么），合法留在 PRD；
+实现层的判据与三处守卫正文现在只在 PITFALLS P16 / P17 一处。

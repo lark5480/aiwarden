@@ -3,10 +3,13 @@
 > **这份文件是什么**：**「这台机器上为什么跑不起来 / 跑起来为什么少数据」**的**唯一正文**。
 > 症状 → 判据 → 处置，面向本地开发与启动验证，不需要改代码。
 >
-> **边界**（与 [`AGENTS.md`](../../AGENTS.md) §4 的分工判据）：
+> **边界**（与 [`../PITFALLS.md`](../PITFALLS.md) 的分工判据）：
 > - 本文件回答「**环境没给对**」——端口、进程、容器、profile、Maven reactor；
-> - AGENTS.md §4 回答「**代码/配置写错**」——坐标版本号、scope、装配扩展点、幂等键语义、静默不生效的机制坑。
+> - `PITFALLS.md` 回答「**代码/配置写错**」——坐标版本号、scope、装配扩展点、幂等键语义、静默不生效的机制坑。
 > - **同一坑只允许一处有正文，另一处只留一行指针。**
+>
+> **小节序号是锚点**：外部文档按「第 1–12 条」引用本节，**只允许就地改文字，
+> 不允许插入或重排小节**（判据见 [`../doc-selfcheck.md`](doc-selfcheck.md) 的锚点断言）。
 >
 > **性质**：会随本机环境过期（与 [`docs/STATUS.md`](../STATUS.md) 同类），**不是**只增不改的历史资产。
 
@@ -138,7 +141,7 @@ IntelliJ 在 Run/Debug Configuration 的 **Active profiles** 填 `local`）。
 
 ---
 
-## 5. B 端「评测报告」页在本地开发库必为 404，不是故障
+## 5. B 端「评测报告」页在本地开发库通常是 404（表为空时），不是故障
 
 `GET /api/v1/admin/eval/report` 返回 404 + `{"detail":"暂无评测报告…"}` 是**预期行为**：
 `t_eval_report` 由评测门禁测试写入 **Testcontainers 的临时数据库**，测试结束容器即销毁——
@@ -147,7 +150,14 @@ IntelliJ 在 Run/Debug Configuration 的 **Active profiles** 填 `local`）。
 **判据**：看该接口 404 时**先查 `t_eval_report` 行数**，别去怀疑路由或 controller。
 路由存在性可用「不带身份头应返回 400」证明——400 说明请求已到我们的 controller。
 
-要看真实数据只有两条路：跑 `mvn verify` 读测试输出里的 `EVAL-SUMMARY`，
+**「必为 404」的前提是这张表为空**（2026-10-19 实测补正）：一旦按下面第二条路 INSERT 过，
+接口就返回 **200**，页面显示的是**那一轮**的 `runAt` / P95 / 平均成本——它与
+[`docs/STATUS.md`](../STATUS.md) §2 的对外投影**不是同一轮**，别把页面上的数字当成 README 的那组。
+判据一句话：**先看 `runAt`**，它早于本轮实测就不是本轮。
+
+要看真实数据只有两条路：跑 `mvn verify` 读测试输出里的 `EVAL-SUMMARY`（单类复跑用 `-am` 形态时
+必须带 `-Dsurefire.failIfNoSpecifiedTests=false`，否则在没有匹配类的兄弟模块上直接 BUILD FAILURE；
+完整命令见 [`docs/STATUS.md`](../STATUS.md) §2），
 或自行把结论 INSERT 进本地库（表结构见 `V9__eval_report.sql`）。
 
 ---
@@ -174,9 +184,10 @@ IntelliJ 在 Run/Debug Configuration 的 **Active profiles** 填 `local`）。
 **不要**用 `file://` 直接打开。
 
 **为什么容易误判成「前端 bug」**：这四个入口的失败形态完全不同（拒连 / 404 / 纯白），而**真正的页面问题**
-不会表现为纯白——身份头缺失或非法时，页面会渲染红色告警并附后端原文（实测：非法租户头 → 400 + 原文
-「租户标识不是合法数值，拒绝执行」）。**判据：能看到顶部 AIWarden 导航 = 前端 shell 正常，问题在数据或接口；
+不会表现为纯白。**判据：能看到顶部 AIWarden 导航 = 前端 shell 正常，问题在数据或接口；
 连导航都没有 = 先查入口 URL。**
+（本条原写「身份头缺失或非法时，页面会渲染红色告警并附后端原文（实测：非法租户头 → 400 + 原文）」——
+**2026-10-19 浏览器实测证伪并就地修正**：那道告警与那条实测都不在浏览器里，判据见下面第 11 条。）
 
 ---
 
@@ -187,7 +198,7 @@ IntelliJ 在 Run/Debug Configuration 的 **Active profiles** 填 `local`）。
 **① 一致性报告**：`GET /api/v1/admin/consistency/report` 有 37+ 份报告并不等于有内容——
 `t_reconcile_report` 是**平台级表（无 tenant 维度）**，对账每 5 分钟自动写一条，实测
 **37 份报告里 `mismatch_count > 0` 的有 0 份**，最新几条 `detail_ref` 都是
-`{"staleDocuments":[],"orphanVectors":0,"stuckProcessing":0,...}`。
+`{"staleDocuments":[],"orphanVectors":0,"stuckIngest":[],"failedOutboxEvents":0,...}`。
 所以「不一致清单为空：没有已删除文档的残留切片」是**正确空态，不是故障**。
 要看到非空清单只有制造一次不一致（软删文档后让残留留下）再等扫描 / 调 `POST /scan`。
 **另注**：该表无 tenant 列，`POST /repair` 是**清全租户残留**、不按租户过滤，多租户演示时别踩。
@@ -208,10 +219,14 @@ IntelliJ 在 Run/Debug Configuration 的 **Active profiles** 填 `local`）。
 `DELETE /api/v1/documents/4`，17:34:32 扫描时残留已为 0），根本没有可演示的窗口。
 所以残留必须**从数据面注入**（模拟「删除事件丢失 / 消费停摆窗口」），而不是等它自然发生。
 
-**对账看的是库，不是事件**（`ConsistencyReconciler.runOnce()`）：三处判据都在同一轮 SQL 里——
-① `t_chunk JOIN t_document WHERE d.deleted_at IS NOT NULL`（残留切片，按 `doc_id` 聚合计数）；
-② 同条件下的 `t_vector` 计数（孤儿向量）；③ `t_ingest_ledger` 里 `PROCESSING` 且超 5 分钟（超时未收敛）。
-`mismatchCount = 残留文档数 + 超时未收敛数`。
+**判据与守卫的正文不在这里**：对账按「库内数据形态」判定（含 outbox 终态）的三条子判据、假阳性守卫、
+重驱动的「事件类型 + 当前版本」双守卫，唯一正文见 [`../PITFALLS.md`](../PITFALLS.md) P16 / P17
+（验收定义见 [`docs/PRD.md`](../PRD.md) FR-ING-06，决策理由见
+[`docs/adr/ADR-006`](../adr/ADR-006-reconcile-readonly.md) 修订段）。
+本节只留演示配方用得上的两句：
+① 残留必须**从数据面注入**（见上面第一段——正常删除路径几秒内就收敛，等不到窗口）；
+② `repair` 只重驱动**当前版本、文档存在且未收敛的索引事件**，它会**真删掉**向量与切片，
+所以演完必须复原（见下表第 5 步与下面的复原坑）。
 
 **实测走通的步骤**（2026-10-10，脚本阶段化，每步都可单独核对）：
 
@@ -219,7 +234,7 @@ IntelliJ 在 Run/Debug Configuration 的 **Active profiles** 填 `local`）。
 |---|---|---|
 | 1 | 给 doc3 复制一份残留产物，并把 `deleted_at` 置为 now()（**不写 outbox** → 不会被消费者清掉） | `chunks=2 vecs=2`，`status=DELETED` |
 | 2 | `POST /api/v1/admin/consistency/scan` | `mismatchCount=1`，清单 `[{"doc_id":3,"tenant_id":1,"stale_chunks":2}]`，`orphanVectors=2` |
-| 3 | `POST /api/v1/admin/consistency/repair` | `{"repairedDocuments":1}` |
+| 3 | `POST /api/v1/admin/consistency/repair` | `{"repairedDocuments":1,"redrivenEvents":0}` |
 | 4 | 再 `POST /scan` | `mismatchCount=0`、`orphanVectors=0`；Prometheus `aiwarden_vector_orphan 0.0` |
 | 5 | 复原（补回切片与向量、文档与账本置回 `INDEXED`） | doc3 恢复可检索（C 端 `kbId=2` 能查到并抽取作答） |
 
@@ -268,5 +283,45 @@ IntelliJ 在 Run/Debug Configuration 的 **Active profiles** 填 `local`）。
 `Could not find a valid Docker environment`，报错常见 `MalformedChunkCodingException (Bad chunk header)`，
 出在 NpipeSocket 策略的探测实现里；**npipe 抖动窗口内重试多次不恢复**。
 
-处置命令与「先证明引擎本体健康」的探针见 [`AGENTS.md`](../../AGENTS.md) §4（该条正文留在 AGENTS，
-因为它是测试代码装配层面的坑；本处只指路）。
+处置命令与「先证明引擎本体健康」的探针见 [`../PITFALLS.md`](../PITFALLS.md) P10（该条正文住在 PITFALLS，
+因为它是「测试怎么跑起来」的 maven 参数与探测策略，属测试装配层面的坑；本处只指路）。
+
+---
+
+## 11. 「缺失即 400」演示不到屏幕上：前端身份层有两道守门（2026-10-19 浏览器实测）
+
+**症状**：想在页面上演示「身份头缺失 / 非法 → 红色告警 + 后端原文」，**做不到**——不是接口没校验，
+是浏览器根本发不出那样的请求。
+
+**两道守门**（`aiwarden-web/src/components/IdentityDrawer.vue` + `aiwarden-web/src/stores/identity.ts`）：
+① 抽屉保存时按「必须是数字串」同步校验，非法值 toast 拦下、**不落 localStorage、不发请求**（实测：填 `abc`
+点「保存并刷新」只弹文案）；② 即便绕过抽屉直接往 localStorage 写空串，读回时空 / 空白值
+**回落缺省 `tenant=1 / user=1`**（实测：写 `{tenantId:""}` 后刷新，顶部标签仍是 `tenant 1`）。
+所以 `App.vue` 那句「身份头非法，接口会 400」的红色告警分支与页面上展示 400 原文的分支，
+**当前 UI 流程走不到，属防御性代码**。
+
+**判据与分工**：「缺身份即 400」在后端与测试两层证——`AdminIdentityBoundaryContainersTest`
+逐端点断言缺租户 400 / 缺主体 400，浏览器侧要演 400 只能用 curl / DevTools 直接发请求。
+页面能演的只有两件事：**前端拦截**（非法值不发）与**跨租户空态**（下面第 12 条）。
+**别把「页面没报错」当成「校验没生效」**——租户维度生效时它给的是空态，不是告警。
+
+**为什么不改前端去「能演 400」（2026-10-19 裁决 31 定调，别反复讨论）**：回落缺省是开发态的
+有意取舍——填一次常驻，否则每次刷新都要重填身份。安全上无缺口（后端自己校验，前端守门不构成信任边界）。
+真要在页面上演 400，代价最小的做法是**在抽屉里加一个「不发送该头」的显式开关**（让「不发」成为用户动作，
+而不是把空值重新解释成「不发」）；**不要**直接删掉 `normalize()` 的回落。
+
+---
+
+## 12. 把身份头设成不存在的租户，B 端页面全空但接口全 200（2026-10-19 实测）
+
+**症状**：演示时把租户改成非 1 的值（如 99），KB 页变成「还没有知识库：先在下方创建一个」、
+文档表 0 条、Trace 查询报「没有找到 traceId=… 的运行（当前租户内）」——**接口都正常返回，页面无一条报错**。
+
+**真因**：租户维度是**作用域过滤**，不是准入校验。`GET /api/v1/knowledge-bases` 对不存在的租户返回
+`200 []`（不验 `t_tenant` 存在性）；`GET /api/v1/agent/runs/by-trace/{traceId}` 用别的租户查**真实存在**
+的 trace 返回 **404**（不是 403）。同一条数据在租户 1 下 10 步全 `SUCCEEDED`，在租户 99 下就是空态。
+
+**判据**：B 端整片空 + 控制台 / network 无错误 = **先查当前租户身份**（顶部标签 `tenant N`），
+再怀疑数据。要演「租户隔离」，就用这个对照：同一 traceId 切租户 → 时间线变「没找到」，
+**别把空态讲成「没有数据」**。另注：换租户后 KB 页选中的 `localStorage.aiwarden.kbId` 会被
+`loadKbs()` 纠正为当前租户的第一个库（当前库为空则清成 null 并显示空态），不是状态残留。

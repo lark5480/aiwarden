@@ -39,19 +39,21 @@
 
 | 登记时点 | 一行结论 | 正文落点 |
 |---|---|---|
-| M1 初版 | 幂等仲裁键混用「重复投递」与「合法状态流转」，删除事件被当重复静默跳过 | [`adr/ADR-005`](adr/ADR-005-outbox-idempotent-consumption.md) 修订段 · [`../AGENTS.md`](../AGENTS.md) §4 |
-| M2 | 「HNSW 三重假绿」：小表走精确路径 / 入口点落在可见团 / 审计被事务回滚 | [`adr/ADR-008`](adr/ADR-008-visibility-acl-model.md) 修订段 · [`../AGENTS.md`](../AGENTS.md) §4 |
-| 来源未标日期 | 只加 `flyway-core` 时 Flyway 静默不执行任何迁移（无日志、无表） | [`../AGENTS.md`](../AGENTS.md) §4 |
-| 来源未标日期 | `CommonErrorHandler` 候选不唯一 → 自定义重试与 DLT 一起失效且不提示 | [`../AGENTS.md`](../AGENTS.md) §4 |
-| 切片③④联调实测 | 装配模块的 test scope `lettuce-core` 挤掉运行期依赖：`mvn verify` 全绿而 `java -jar` 启动失败 | [`../AGENTS.md`](../AGENTS.md) §4 · [`adr/ADR-012`](adr/ADR-012-chat-orchestration-and-eval.md) 缺陷表 |
-| 切片③④联调实测 | Micrometer 导出剥掉 Gauge 名尾部 `_total` → 按注册名抓取的面板永远空 | [`../AGENTS.md`](../AGENTS.md) §4 · [`adr/ADR-012`](adr/ADR-012-chat-orchestration-and-eval.md) 缺陷表 |
-| 来源未标日期 | Jackson 属性名写成 `use-jackson-2-defaults`（多一个连字符）静默失效 | [`../AGENTS.md`](../AGENTS.md) §4 · [`adr/ADR-001`](adr/ADR-001-bootstrap-versions.md) 修订段 |
-| 切片④实测 | MCP SDK handler 不在 Servlet 线程，ThreadLocal 身份不可用 | [`../AGENTS.md`](../AGENTS.md) §4 |
-| 2026-10-07 实测 | 改共享契约只跑 `test-compile` → 半旧 class 造成成片假崩溃 | [`../AGENTS.md`](../AGENTS.md) §4 |
-| 2026-10-07 实测更正 | 先前把容器测试失败归因于 `@TestInstance(PER_CLASS)`，真触发条件是 `@DynamicPropertySource` | [`../AGENTS.md`](../AGENTS.md) §4 |
-| 2026-10-10 实测 | 前端把 mutation 打在响应式代理之外：数据变了但不重渲染 | [`../AGENTS.md`](../AGENTS.md) §4 · [`adr/ADR-012`](adr/ADR-012-chat-orchestration-and-eval.md) 缺陷表 |
-| 2026-10-19 实测 | 子进程集成测试用 `SpringApplicationBuilder.properties()` 配数据源，被 `application.yml` 覆盖 → 连错库（看似「容器没起」） | [`../AGENTS.md`](../AGENTS.md) §4 |
+| M1 初版 | 幂等仲裁键混用「重复投递」与「合法状态流转」，删除事件被当重复静默跳过 | [`adr/ADR-005`](adr/ADR-005-outbox-idempotent-consumption.md) 修订段 · [`PITFALLS.md`](PITFALLS.md) P15 |
+| M2 | 「HNSW 三重假绿」：小表走精确路径 / 入口点落在可见团 / 审计被事务回滚 | [`adr/ADR-008`](adr/ADR-008-visibility-acl-model.md) 修订段 · [`PITFALLS.md`](PITFALLS.md) P13 |
+| 来源未标日期 | 只加 `flyway-core` 时 Flyway 静默不执行任何迁移（无日志、无表） | [`PITFALLS.md`](PITFALLS.md) P03 |
+| 来源未标日期 | `CommonErrorHandler` 候选不唯一 → 自定义重试与 DLT 一起失效且不提示 | [`PITFALLS.md`](PITFALLS.md) P06 |
+| 切片③④联调实测 | 装配模块的 test scope `lettuce-core` 挤掉运行期依赖：`mvn verify` 全绿而 `java -jar` 启动失败 | [`PITFALLS.md`](PITFALLS.md) P05 · [`adr/ADR-012`](adr/ADR-012-chat-orchestration-and-eval.md) 缺陷表 |
+| 切片③④联调实测 | Micrometer 导出剥掉 Gauge 名尾部 `_total` → 按注册名抓取的面板永远空 | [`PITFALLS.md`](PITFALLS.md) P07 · [`adr/ADR-012`](adr/ADR-012-chat-orchestration-and-eval.md) 缺陷表 |
+| 来源未标日期 | Jackson 属性名写成 `use-jackson-2-defaults`（多一个连字符）静默失效 | [`PITFALLS.md`](PITFALLS.md) P02 · [`adr/ADR-001`](adr/ADR-001-bootstrap-versions.md) 修订段 |
+| 切片④实测 | MCP SDK handler 不在 Servlet 线程，ThreadLocal 身份不可用 | [`PITFALLS.md`](PITFALLS.md) P08 |
+| 2026-10-07 实测 | 改共享契约只跑 `test-compile` → 半旧 class 造成成片假崩溃 | [`PITFALLS.md`](PITFALLS.md) P12 |
+| 2026-10-07 实测更正 | 先前把容器测试失败归因于 `@TestInstance(PER_CLASS)`，真触发条件是 `@DynamicPropertySource` | [`PITFALLS.md`](PITFALLS.md) P11 |
+| 2026-10-10 实测 | 前端把 mutation 打在响应式代理之外：数据变了但不重渲染 | [`PITFALLS.md`](PITFALLS.md) P20 · [`adr/ADR-012`](adr/ADR-012-chat-orchestration-and-eval.md) 缺陷表 |
+| 2026-10-19 实测 | 子进程集成测试用 `SpringApplicationBuilder.properties()` 配数据源，被 `application.yml` 覆盖 → 连错库（看似「容器没起」） | [`PITFALLS.md`](PITFALLS.md) P14 |
 | M3 评测首轮 | `expectedDocs`「语义相关必命中」在哈希伪嵌入下是抛硬币，该类断言删除 | [`adr/ADR-012`](adr/ADR-012-chat-orchestration-and-eval.md) 修订段 · [`STATUS.md`](STATUS.md) §3 |
+| 2026-10-19 实测 | 对账判据按「链路命名」而非「数据形态」穷举：outbox 事件重试到上限置 `FAILED` 后文档停 `PENDING` 九天、账本零行，三条判据全部无感（`mismatch_count=0`、`aiwarden_ingest_stuck 0.0`，不报错也不进清单） | [`adr/ADR-006`](adr/ADR-006-reconcile-readonly.md) 修订段 · [`PITFALLS.md`](PITFALLS.md) P16（演示配方见 [`dev/troubleshooting.md`](dev/troubleshooting.md) §8） |
+| 2026-10-19 审计补 | 重驱动未区分事件类型/版本：删除事件被放回会重新 purge 全部版本（可能清空同名重传文档）；旧版本索引事件可能覆盖新版本产物 | [`adr/ADR-006`](adr/ADR-006-reconcile-readonly.md) 修订段 · [`STATUS.md`](STATUS.md) §2 · [`PITFALLS.md`](PITFALLS.md) P17 |
 
 ## D. 承诺与默认配置之间的缝隙、以及未达成项
 
@@ -71,14 +73,16 @@
 | 2026-10-19（M4） | 模型调用维度归因已接 OTel span（`t_llm_call_log.trace_id` / `cost` 回填） | [`adr/ADR-014`](adr/ADR-014-observability-trace.md) · [`STATUS.md`](STATUS.md) §2 |
 | 2026-10-19（M4） | Loki 日志关联、Tempo/Collector 实跑未完成（本机 Docker Hub 不可直连） | [`STATUS.md`](STATUS.md) §3 · [`research/06`](research/06-PRD修订裁决清单.md) 裁决 27 |
 | 2026-10-19（M4） | K8s/Helm + HPA 可选实验未做（非交付承诺，主动不投入） | [`PRD.md`](PRD.md) §8 · [`research/06`](research/06-PRD修订裁决清单.md) 裁决 27 |
+| 2026-10-19 实测 | 评测 P95 写成单点值不可复现（同日多次实测落在此前记录的抖动带之外）——改为「抖动范围 + 同机负载说明」，单点值不再对外投影 | [`STATUS.md`](STATUS.md) §2 结论表 · [`research/06`](research/06-PRD修订裁决清单.md) 裁决 29 |
+| 2026-10-19 实测 | 压测「拐点=并发 4」的旧判据句（「RPS 不再随并发增长」）与自家吞吐表读起来矛盾（更高并发的采样值反而更大）——判据改为以 P99 抬升为主，数字不回改 | [`benchmarks/M4-load-report.md`](benchmarks/M4-load-report.md) §3 · [`research/06`](research/06-PRD修订裁决清单.md) 裁决 29 |
 
 ## E. 环境类静默失效（与项目代码无关）
 
 | 登记时点 | 一行结论 | 正文落点 |
 |---|---|---|
 | 2026-10-10 实测定位 | Windows 把 TCP 9092 划进保留端口区间 → Docker 不 bind 也不报错，outbox 全卡 `PENDING` | [`dev/troubleshooting.md`](dev/troubleshooting.md) §2 |
-| 2026-10-07 实测 | 本机 Testcontainers 的 npipe 探测偶发失败，且删配置只对当次生效（策略会被写回缓存） | [`../AGENTS.md`](../AGENTS.md) §4 |
-| 2026-10-10 实测 | 本地开发库的评测报告页必为 404（`t_eval_report` 只存在于临时容器库） | [`dev/troubleshooting.md`](dev/troubleshooting.md) §5 |
+| 2026-10-07 实测 | 本机 Testcontainers 的 npipe 探测偶发失败，且删配置只对当次生效（策略会被写回缓存） | [`PITFALLS.md`](PITFALLS.md) P10 |
+| 2026-10-10 实测 | 本地开发库、`t_eval_report` 表为空时评测报告页必为 404（该表只存在于临时容器库；手工 INSERT 过就不再 404） | [`dev/troubleshooting.md`](dev/troubleshooting.md) §5 |
 | 2026-10-10 实测 | 残留的旧实例进程占着 8080 且跑旧 profile，同时表现为「Kafka 连不上」和「端口占用」 | [`dev/troubleshooting.md`](dev/troubleshooting.md) §3 |
 | 2026-10-10 实测 | 前端只 bind 了 `[::1]:5173`，`127.0.0.1:5173` 被拒；`file://` 直开 `dist` 是纯白页——「什么都看不到」不等于前端坏了 | [`dev/troubleshooting.md`](dev/troubleshooting.md) §6 |
 | 2026-10-10 实测 | 一致性报告 37 份里不一致数**全为 0**（「清单为空」是正确空态却读起来像故障）；孤儿向量曲线需手动采样、且不累积历史 | [`dev/troubleshooting.md`](dev/troubleshooting.md) §7 |
@@ -86,5 +90,6 @@
 
 ---
 
-**当前覆盖**：A 4 条 · B 10 条 · C 13 条 · D 14 条 · E 7 条（共 48 条，M1–M4 已登记，含 M4 后补测 1 条）。
+**当前覆盖**：A 4 条 · B 10 条 · C 15 条 · D 16 条 · E 7 条（共 52 条，M1–M4 已登记，含 M4 后补测 1 条）。
+计数核法见 [`dev/doc-selfcheck.md`](dev/doc-selfcheck.md) ④；上一版尾注少计 4 条，本轮已按表数据行校正。
 M4 收官条目已登记；后续翻案立新条目，不回改旧条目。

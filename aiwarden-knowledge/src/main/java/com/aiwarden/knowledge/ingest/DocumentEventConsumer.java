@@ -23,6 +23,10 @@ import java.nio.charset.StandardCharsets;
  *
  * <p>失败语义：handler 异常 → ledger 置 FAILED → 抛出交给 Kafka 错误处理器
  * （指数退避重试 ≤3 次 → DLT，FR-ING-04）；重试消息凭 FAILED 状态重新抢占（不会被仲裁挡死）。
+ *
+ * <p>旧版本守卫（2026-10-19 审计）：claim 前按 {@code t_document.version} 拒绝旧版本事件——
+ * 幂等键 {@code (docId, version)} 挡不住“旧事件晚到”；文档不存在时放行，由 handler 走
+ * {@link DocumentNotFoundException} 终态（保持可见，不静默跳过）。
  */
 @Component
 public class DocumentEventConsumer {
@@ -31,15 +35,18 @@ public class DocumentEventConsumer {
 
     private final ObjectMapper objectMapper;
     private final IngestLedgerGuard ledgerGuard;
+    private final DocumentIngestStore ingestStore;
     private final DocumentIngestHandler ingestHandler;
     private final TraceSupport traceSupport;
 
     public DocumentEventConsumer(ObjectMapper objectMapper,
                                  IngestLedgerGuard ledgerGuard,
+                                 DocumentIngestStore ingestStore,
                                  DocumentIngestHandler ingestHandler,
                                  TraceSupport traceSupport) {
         this.objectMapper = objectMapper;
         this.ledgerGuard = ledgerGuard;
+        this.ingestStore = ingestStore;
         this.ingestHandler = ingestHandler;
         this.traceSupport = traceSupport;
     }
@@ -61,6 +68,15 @@ public class DocumentEventConsumer {
     private void process(ConsumerRecord<String, String> record) {
         DocumentEventPayload payload = objectMapper.readValue(record.value(), DocumentEventPayload.class);
         long tenantId = TenantContext.requireTenantIdAsLong();
+
+        // C1/C2 守卫：旧版本 / 删除后重传的事件不能落到当前文档上。
+        // (docId, version) 只能挡重复投递；旧事件晚到不是重复投递——先按当前文档版本拒一次。
+        // 文档不存在时放行：让 handler 走 DocumentNotFoundException 终态（保持可见，不静默跳过）。
+        if (!ingestStore.isCurrentVersionOrMissing(tenantId, payload.docId(), payload.version())) {
+            log.info("跳过过期事件：docId={} payloadVersion={}（当前文档版本不同）",
+                    payload.docId(), payload.version());
+            return;
+        }
 
         boolean deleteEvent = DocumentEventTypes.DELETE_REQUESTED.equals(record.topic());
         boolean claimed = deleteEvent

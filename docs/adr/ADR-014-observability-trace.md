@@ -58,3 +58,30 @@ M3 的 SSE 时间线只是**本次连接可见**的耗时，进程崩溃或连�
 | 四类异步边界 traceId 不丢 | `TracePropagationTest` 4 用例：虚拟线程 / 固定线程池 / 定时任务（traceparent 捕获后另线程恢复）/ Kafka 消息头 |
 | 跨进程续跑接回同一 trace | `AgentCrashResumeContainersTest`：崩溃前后两个进程的 10 个步骤共享同一 `trace_id`，outbox 的 `trace_parent` 含该 traceId |
 | 可按 traceId 还原一次调用 | `GET /api/v1/agent/runs/by-trace/{traceId}` + 前端一致性页的 Trace 查询区块 |
+
+## 使用配方：按 traceId 定位一次「答错」（FR-OBS-05）
+
+> **这一节是运维配方的唯一正文**（2026-10 从根 `README.md` 迁入，裁决 32——README 只留一句 + 指针）。
+> 上面的「决策 2 / 决策 4」定义了 span 树与 traceId 的落点，这里只回答「拿到一个 traceId，先看哪四个位置」。
+
+一次问答的所有 span 共享同一 traceId（`X-Trace-Id` 响应头 / `t_agent_session.trace_id`）；按 traceId 查
+`GET /api/v1/agent/runs/by-trace/{traceId}` 能看到 10 个节点的检查点时间线。**在 Grafana → Tempo 看 span 树
+这一步本轮未实跑**（Collector / Tempo 未进 compose，本机拉不到镜像；span 树由 OTel SDK 内存 exporter 的
+全链路测试逐名断言——边界见 [`../STATUS.md`](../STATUS.md) §3 ①）。
+
+| 看的 span | 关键属性 / 输出 | 能排除什么 |
+|---|---|---|
+| `agent.node.retrieval` | `aiwarden.retrieval.hits` / `min_distance` | 命中 0 条或距离接近 1 → **不是模型幻觉**，是检索没给到上下文（B1） |
+| `agent.node.prompt` | `snippets` / `tools` | 片段进了 Prompt、工具可见面正确 → 排除「上下文没传进去」 |
+| `model.chat` | `aiwarden.model` / tokens | 模型确实被调用；输出文本在 `agent.node.model` 的检查点快照 |
+| `tool.invoke.*` | `aiwarden.tool` / 状态 / `replayed` | 模板 / 工具参数错误 vs 治理拦截（deny / 重放） |
+
+**把它套在真实案例上**：M3 评测首轮 6 条样本红——`expectedDocs` 断言「语义相关必命中」失败。四个位置逐一排除后：
+检索有命中但 `min_distance` 接近 1（确定性哈希伪嵌入不保留语义），Prompt 与模型输出都正常——**定位为检索语义
+边界（B1），不是 Prompt 理解偏差、也不是模型幻觉**，据此删除该类断言（该轮处置的决策记录在
+[ADR-012 修订段](ADR-012-chat-orchestration-and-eval.md) 与 [`../STATUS.md`](../STATUS.md) §3，本处只讲怎么读）。
+这正是「可观测」与「承诺边界」应当互相解释的地方。
+
+**C 端与 B 端的时间线口径不同**（别当成矛盾）：C 端 SSE 只发 5 类 `step`（visibility / retrieval / prompt /
+model / metering，tool·cost·outcome 各有独立事件），**完整 10 步**在上述按 traceId 的接口（DB 检查点）——
+「10 步时间线」这句承诺指的是后者。

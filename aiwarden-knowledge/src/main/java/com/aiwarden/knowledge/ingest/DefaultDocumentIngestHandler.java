@@ -44,6 +44,13 @@ public class DefaultDocumentIngestHandler implements DocumentIngestHandler {
         }
 
         DocumentIngestStore.DocumentRow document = store.requireDocument(tenantId, payload.docId());
+        if (document.version() != payload.version()) {
+            // 第二道守卫：consumer 检查后到 handler 读取之间文档可能又重传过。
+            // 旧版本事件不能再按当前内容覆盖新版本产物（indexDocument 会删掉 version <> payload.version 的切片）。
+            log.info("跳过过期索引事件：docId={} payloadVersion={} currentVersion={}",
+                    payload.docId(), payload.version(), document.version());
+            return;
+        }
         List<String> chunks = chunker.chunk(document.content());
         store.indexDocument(tenantId, payload.docId(), payload.version(), document.kbId(),
                 document.orgId(), chunks);

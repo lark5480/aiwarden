@@ -9,30 +9,43 @@ import { getJson, postJson } from './client'
 export interface ConsistencyReport {
   reportId: number
   mismatchCount: number
-  /** detailsJson 是**字符串**，需 JSON.parse；内含 staleDocuments/orphanVectors/stuckProcessing/scannedAt */
+  /** detailsJson 是**字符串**，需 JSON.parse；内含 staleDocuments/orphanVectors/stuckIngest/failedOutboxEvents/scannedAt */
   detailsJson: string
   createdAt: string
 }
 
-/** detailsJson 解析后的形状（ConsistencyReconciler.runOnce() 的 Map.of 键，见 :107-111） */
+/** detailsJson 解析后的形状（ConsistencyReconciler.runOnce() 的 Map.of 键） */
 export interface ConsistencyDetails {
   staleDocuments: StaleDocument[]
   orphanVectors: number
-  stuckProcessing: number
+  /** 摄入停摆清单：三条子判据（当前版本索引事件永久失败 / 当前版本账本卡死 / 文档超时）按 doc_id 去重后的并集 */
+  stuckIngest: StuckIngestDocument[]
+  /** 当前版本、文档存在且未收敛的永久失败索引事件数（删除事件与旧版本不在此列） */
+  failedOutboxEvents: number
   scannedAt: string
 }
 
-/** staleDocuments 元素 = SELECT c.doc_id, c.tenant_id, count(*) AS stale_chunks（:81-88） */
+/** staleDocuments 元素 = SELECT c.doc_id, c.tenant_id, count(*) AS stale_chunks */
 export interface StaleDocument {
   doc_id: number
   tenant_id: number
   stale_chunks: number
 }
 
-/** ConsistencyRepairResponse（contract/governance/ConsistencyRepairResponse.java:6）
- *  端点：POST /api/v1/admin/consistency/repair（ConsistencyController.java:43） */
+/** stuckIngest 元素 = 停摆并集查询的行（reason 取子判据优先级最高的一条） */
+export interface StuckIngestDocument {
+  doc_id: number
+  tenant_id: number
+  reason: 'OUTBOX_FAILED' | 'LEDGER_PROCESSING' | 'DOCUMENT_OVERDUE'
+  event_id: number | null
+}
+
+/** ConsistencyRepairResponse（contract/governance/ConsistencyRepairResponse.java:10）
+ *  端点：POST /api/v1/admin/consistency/repair（ConsistencyController.java:63） */
 export interface ConsistencyRepair {
   repairedDocuments: number
+  /** 重驱动的当前版本永久失败索引事件数；删除事件与旧版本事件不重驱动 */
+  redrivenEvents: number
 }
 
 export function getConsistencyReport(): Promise<ConsistencyReport> {
@@ -49,7 +62,7 @@ export function scanConsistency(): Promise<ConsistencyReport> {
   return postJson<ConsistencyReport>('/api/v1/admin/consistency/scan')
 }
 
-/** POST /repair：对残留文档补做产物清理（ConsistencyController.java:43-46） */
+/** POST /repair：对残留文档补做产物清理 + 当前版本失败索引事件重驱动（ConsistencyController.java:63-67） */
 export function repairConsistency(): Promise<ConsistencyRepair> {
   return postJson<ConsistencyRepair>('/api/v1/admin/consistency/repair')
 }

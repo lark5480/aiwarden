@@ -63,6 +63,20 @@ public class DocumentIngestStore {
     }
 
     /**
+     * 事件携带的版本是否匹配当前文档；**文档不存在返回 true**——此时没有“当前版本”可保护，
+     * 交给 handler 按 {@link DocumentNotFoundException} 走不可重试终态（保持可见，不静默跳过）。
+     *
+     * <p>这是“旧事件晚到”守卫：{@code (docId, version)} 幂等键只能挡住重复投递，
+     * 挡不住旧版本事件在重传后到达——那种情况下继续处理会把旧版本产物写回并删掉新版本切片。
+     */
+    public boolean isCurrentVersionOrMissing(long tenantId, long docId, int version) {
+        List<Integer> versions = jdbcTemplate.queryForList("""
+                SELECT version FROM t_document WHERE tenant_id = ? AND id = ?
+                """, Integer.class, tenantId, docId);
+        return versions.isEmpty() || versions.get(0) == version;
+    }
+
+    /**
      * 摄入落库（单事务）：清同版本（重放安全）→ 写新切片与向量 → 退役旧版本（FR-ING-03：
      * 新版本就绪后旧版本才失效）→ 文档置 INDEXED。
      */

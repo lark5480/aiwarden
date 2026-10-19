@@ -16,7 +16,7 @@ import java.util.List;
  * 一致性对账接口（FR-ING-06）：
  * GET  /report  最近一次对账报告（不一致清单可查）
  * POST /scan    手动触发一轮扫描（运维 / 演示用——对账的"修复录屏"从这里开始）
- * POST /repair  显式修复：对残留文档补做产物清理（ADR-006：发现与修复分离）
+ * POST /repair  显式修复：残留文档补做产物清理 + 永久失败事件重驱动（ADR-006：发现与修复分离）
  */
 @RestController
 @RequestMapping("/api/v1/admin/consistency")
@@ -62,6 +62,7 @@ public class ConsistencyController {
     @PostMapping("/repair")
     public ConsistencyRepairResponse repair() {
         AdminAccess.requireIdentity();
-        return new ConsistencyRepairResponse(reconciler.repair());
+        ConsistencyReconciler.RepairOutcome outcome = reconciler.repair();
+        return new ConsistencyRepairResponse(outcome.repairedDocuments(), outcome.redrivenEvents());
     }
 }

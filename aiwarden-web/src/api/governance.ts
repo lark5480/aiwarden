@@ -39,6 +39,11 @@ export function getConsistencyReport(): Promise<ConsistencyReport> {
   return getJson<ConsistencyReport>('/api/v1/admin/consistency/report')
 }
 
+/** GET /reports?limit=N：最近 N 轮扫描（M4；空态上下文用） */
+export function getConsistencyReports(limit = 20): Promise<ConsistencyReport[]> {
+  return getJson<ConsistencyReport[]>('/api/v1/admin/consistency/reports', { limit })
+}
+
 /** POST /scan：同步跑一轮对账并返回最新报告（ConsistencyController.java:37-41） */
 export function scanConsistency(): Promise<ConsistencyReport> {
   return postJson<ConsistencyReport>('/api/v1/admin/consistency/scan')

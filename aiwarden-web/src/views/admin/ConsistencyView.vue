@@ -15,6 +15,7 @@ import { LineChart } from 'echarts/charts'
 import { GridComponent, LegendComponent, TooltipComponent } from 'echarts/components'
 import {
   getConsistencyReport,
+  getConsistencyReports,
   parseConsistencyDetails,
   parseOrphanGauge,
   repairConsistency,
@@ -23,6 +24,7 @@ import {
   type ConsistencyReport,
   type StaleDocument,
 } from '@/api/governance'
+import { getAgentRunByTrace, type AgentRunView } from '@/api/agent'
 import { getPrometheusText } from '@/api/admin'
 import { ApiError } from '@/api/client'
 
@@ -53,6 +55,28 @@ const gaugeHelp = ref<string | null>(null)
 let timer: number | null = null
 
 const staleDocuments = computed<StaleDocument[]>(() => details.value?.staleDocuments ?? [])
+
+/** 最近 N 轮扫描（M4）：用于区分「不一致清单为空」与「系统根本没在扫」。 */
+const recentReports = ref<ConsistencyReport[]>([])
+const recentLoading = ref(false)
+const recentError = ref<string | null>(null)
+const recentMismatchRounds = computed(() => recentReports.value.filter((item) => item.mismatchCount > 0).length)
+const recentMismatchTotal = computed(() =>
+  recentReports.value.reduce((sum, item) => sum + item.mismatchCount, 0),
+)
+const recentRange = computed(() => {
+  if (recentReports.value.length === 0) {
+    return null
+  }
+  const ids = recentReports.value.map((item) => item.reportId)
+  return { newest: Math.max(...ids), oldest: Math.min(...ids), count: ids.length }
+})
+
+/** 按 traceId 查一次调用的检查点时间线（M4 / FR-ADM-03；span 明细在 Tempo）。 */
+const traceIdInput = ref('')
+const traceRun = ref<AgentRunView | null>(null)
+const traceLoading = ref(false)
+const traceError = ref<string | null>(null)
 
 const chartOption = computed(() => ({
   tooltip: {
@@ -107,6 +131,44 @@ async function load(): Promise<void> {
   } finally {
     loading.value = false
   }
+  void loadRecent()
+}
+
+/** 最近 N 轮扫描：空态上下文（M4）。接口失败不覆盖主报告的错误展示，单独提示。 */
+async function loadRecent(): Promise<void> {
+  recentLoading.value = true
+  try {
+    recentReports.value = await getConsistencyReports(20)
+    recentError.value = null
+  } catch (error_) {
+    recentReports.value = []
+    recentError.value = `GET /api/v1/admin/consistency/reports 失败：${describe(error_).message}`
+  } finally {
+    recentLoading.value = false
+  }
+}
+
+/** 按 traceId 查一次调用的检查点时间线（M4 / FR-ADM-03）。 */
+async function lookupTrace(): Promise<void> {
+  const traceId = traceIdInput.value.trim()
+  traceRun.value = null
+  traceError.value = null
+  if (traceId === '') {
+    traceError.value = '请输入 traceId（32 位十六进制；C 端响应的 X-Trace-Id 头或运行视图里都有）'
+    return
+  }
+  traceLoading.value = true
+  try {
+    traceRun.value = await getAgentRunByTrace(traceId)
+  } catch (error_) {
+    const described = describe(error_)
+    traceError.value =
+      described.status === 404
+        ? `没有找到 traceId=${traceId} 的运行（当前租户内）；确认它来自本环境，且不是只存在于 Tempo 的外部 trace。`
+        : `查询失败：${described.message}`
+  } finally {
+    traceLoading.value = false
+  }
 }
 
 async function scan(): Promise<void> {
@@ -124,6 +186,7 @@ async function scan(): Promise<void> {
     }
     error.value = null
     ElMessage.success('已触发一轮对账扫描（同步执行）')
+    void loadRecent()
   } catch (error_) {
     error.value = describe(error_)
   } finally {
@@ -205,6 +268,36 @@ onMounted(() => {
         reportId {{ report.reportId }} · createdAt {{ report.createdAt }}
       </span>
     </div>
+
+    <el-alert v-if="recentLoading" type="info" :closable="false" class="aw-section">
+      正在读取最近扫描记录……
+    </el-alert>
+    <el-alert v-else-if="recentError" type="warning" :closable="false" show-icon class="aw-section">
+      <template #title>最近扫描记录读取失败</template>
+      <div class="aw-mono">{{ recentError }}</div>
+    </el-alert>
+    <el-alert v-else-if="recentReports.length === 0" type="info" :closable="false" show-icon class="aw-section">
+      <template #title>尚无历史扫描记录</template>
+      <div>
+        对账定时任务默认每 5 分钟一轮；也可以点上方「触发扫描」。此刻「不一致清单为空」既可能是正常，也可能是从未扫过——
+        先扫一轮再判断。
+      </div>
+    </el-alert>
+    <el-alert v-else :type="recentMismatchRounds === 0 ? 'success' : 'warning'" :closable="false" show-icon
+      class="aw-section">
+      <template #title>
+        近 {{ recentRange?.count }} 轮扫描（reportId {{ recentRange?.oldest }} → {{ recentRange?.newest }}）
+      </template>
+      <div v-if="recentMismatchRounds === 0">
+        近 {{ recentReports.length }} 轮<strong>均未发现不一致</strong>（累计 0 条）——扫描在持续发生，
+        「不一致清单为空」是正常工作状态，不是故障。
+      </div>
+      <div v-else>
+        {{ recentReports.length }} 轮中有 <strong>{{ recentMismatchRounds }}</strong> 轮发现不一致，累计
+        {{ recentMismatchTotal }} 条；最近一轮 mismatchCount={{ recentReports[0].mismatchCount }}。
+        逐轮明细见下方最近一轮报告与不一致清单。
+      </div>
+    </el-alert>
 
     <el-alert v-if="error" type="error" :closable="false" show-icon class="aw-section">
       <template #title>
@@ -317,27 +410,48 @@ onMounted(() => {
       </el-card>
     </template>
 
-    <el-card shadow="never" class="aw-section placeholder">
+    <el-card shadow="never" class="aw-section">
       <template #header>
         <div class="card__head">
           <span class="aw-section__title">按 traceId 查完整步骤时间线</span>
-          <el-tag type="warning" size="small" effect="plain">待 M4（OTel span）</el-tag>
+          <el-tag type="success" size="small" effect="plain">M4 · 已接入</el-tag>
         </div>
       </template>
-      <div class="placeholder__body">
-        <p>
-          PRD §5.10 的 FR-ADM-03 要求把原 FR-ADM-06 的 Trace 查询并入本页（按 traceId 查一次调用的完整步骤时间线与各步耗时 / Token）。
-          <strong>当前仓库没有对应端点</strong>：全仓库只有 11 个 Controller，其中没有任何 trace / span 查询接口；
-          <span class="aw-mono">/actuator</span> 只暴露了 health 与 prometheus 两个端点。
-        </p>
-        <p>
-          因此本区块是<strong>占位</strong>，不发请求、不展示任何造出来的数据。现在能看到的「步骤时间线 / 各步耗时 / Token」
-          只有两条真实路径：① C 端问答页的 <span class="aw-mono">step</span> 事件（本次调用的实时时间线）；
-          ② 用量看板按 <span class="aw-mono">stepNo</span> 过滤的计量明细。
-        </p>
-        <p class="aw-muted">
-          待 M4 可观测性成套（OTel Collector / Tempo 已随 docker compose 就位）并暴露按 traceId 的查询端点后，再在此接入。
-        </p>
+      <div class="trace__query">
+        <el-input v-model="traceIdInput" class="aw-mono" placeholder="32 位 traceId（C 端响应头 X-Trace-Id）"
+          @keyup.enter="lookupTrace" />
+        <el-button type="primary" :loading="traceLoading" @click="lookupTrace">查询</el-button>
+      </div>
+
+      <el-alert v-if="traceError" type="warning" :closable="false" show-icon class="card__note">
+        <div class="aw-mono">{{ traceError }}</div>
+      </el-alert>
+
+      <template v-if="traceRun">
+        <el-descriptions :column="3" border size="small" class="trace__meta">
+          <el-descriptions-item label="runId">{{ traceRun.runId }}</el-descriptions-item>
+          <el-descriptions-item label="session">{{ traceRun.sessionId }}</el-descriptions-item>
+          <el-descriptions-item label="status">{{ traceRun.status }}</el-descriptions-item>
+          <el-descriptions-item label="outcome">{{ traceRun.outcome ?? '—' }}</el-descriptions-item>
+          <el-descriptions-item label="lastStepNo">{{ traceRun.lastStepNo }}</el-descriptions-item>
+          <el-descriptions-item label="version">{{ traceRun.version }}</el-descriptions-item>
+        </el-descriptions>
+        <div v-if="traceRun.reason" class="aw-muted card__note">原因：{{ traceRun.reason }}</div>
+
+        <el-table :data="traceRun.steps" size="small" border class="trace__table">
+          <el-table-column prop="stepNo" label="#" width="60" />
+          <el-table-column prop="name" label="步骤" width="120" />
+          <el-table-column prop="status" label="状态" width="110" />
+          <el-table-column prop="version" label="version" width="90" />
+          <el-table-column prop="elapsedMs" label="耗时(ms)" width="100" />
+          <el-table-column prop="detail" label="detail" />
+        </el-table>
+      </template>
+
+      <div class="aw-muted card__note">
+        数据源：<span class="aw-mono">GET /api/v1/agent/runs/by-trace/{traceId}</span>（数据库检查点，
+        崩溃/续跑后的完整时间线）。span 的父子关系与属性在 Grafana → Explore → Tempo 按同一 traceId 查看
+        （OTLP 端点与 compose 配置见仓库 README / docker-compose.yml）。
       </div>
     </el-card>
   </div>
@@ -415,6 +529,19 @@ onMounted(() => {
 .placeholder__body {
   font-size: 13px;
   line-height: 1.8;
+}
+
+.trace__query {
+  display: flex;
+  gap: 8px;
+}
+
+.trace__meta {
+  margin-top: 12px;
+}
+
+.trace__table {
+  margin-top: 12px;
 }
 
 .placeholder__body p {

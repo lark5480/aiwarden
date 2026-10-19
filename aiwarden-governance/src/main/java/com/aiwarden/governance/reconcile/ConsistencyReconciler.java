@@ -161,6 +161,24 @@ public class ConsistencyReconciler {
         return rows.stream().findFirst();
     }
 
+    /**
+     * 最近 N 轮扫描（M4 / FR-ADM-03 空态上下文）：
+     * 「不一致清单为空」与「系统没在扫」必须能区分——后者近 N 轮为空、前者报告在持续新增但 mismatch=0。
+     */
+    public List<ReportRow> recentReports(int limit) {
+        return jdbcTemplate.query("""
+                SELECT id, mismatch_count, detail_ref, created_at
+                FROM t_reconcile_report
+                WHERE type = 'CONSISTENCY'
+                ORDER BY id DESC
+                LIMIT ?
+                """,
+                (rs, rowNum) -> new ReportRow(rs.getLong("id"), rs.getInt("mismatch_count"),
+                        rs.getString("detail_ref"),
+                        String.valueOf(rs.getObject("created_at", OffsetDateTime.class))),
+                Math.min(Math.max(limit, 1), 100));
+    }
+
     /** 单轮扫描结论。 */
     public record ReconcileSummary(Long reportId, int mismatchCount, int staleDocuments,
                                    long orphanVectors, long stuckProcessing) {

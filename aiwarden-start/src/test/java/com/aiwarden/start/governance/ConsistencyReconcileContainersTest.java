@@ -87,6 +87,14 @@ class ConsistencyReconcileContainersTest {
         assertThat(((Number) details.get("orphanVectors")).longValue()).isGreaterThanOrEqualTo(1L);
         assertThat(((Number) details.get("stuckProcessing")).longValue()).isGreaterThanOrEqualTo(1L);
 
+        // M4 / FR-ADM-03：最近 N 轮扫描可查——空态上下文（近 N 轮是否在扫、每轮 mismatch）由此而来
+        HttpResponse<String> reportsResponse = send("GET", "/api/v1/admin/consistency/reports?limit=5");
+        assertThat(reportsResponse.statusCode()).isEqualTo(200);
+        var reports = objectMapper.readTree(reportsResponse.body());
+        assertThat(reports.size()).isGreaterThanOrEqualTo(1);
+        assertThat(reports.get(0).path("reportId").asLong()).isEqualTo(report.reportId());
+        assertThat(reports.get(0).path("mismatchCount").asInt()).isGreaterThanOrEqualTo(2);
+
         // ② 指标暴露（Gauge 为最近一轮扫描的当前值）
         assertThat(meterRegistry.get("aiwarden_vector_orphan_total").gauge().value())
                 .isGreaterThanOrEqualTo(1.0);

@@ -14,6 +14,7 @@
 | [`../AGENTS.md`](../AGENTS.md) | 编码代理入口：文档纪律 + **代码 / 配置层面的机制坑** | 环境排障（归 dev/）、状态描述 |
 | [`dev/troubleshooting.md`](dev/troubleshooting.md) | **本机环境排障唯一正文**：端口 / 进程 / 容器 / profile / Maven reactor | 代码机制坑（归 AGENTS §4） |
 | [`FAILURE.md`](FAILURE.md) | **失败索引**：走过的失败 / 放弃 / 未达成，一行结论 + 指向正文（定义见 `PRD.md` §8.1） | **第二句解释**——它有索引的重量而没有正文的资格 |
+| [`benchmarks/M4-load-report.md`](benchmarks/M4-load-report.md) | **M4 压测的逐项数字 / 吞吐表 / 原始输出 / 复现命令**（M4 报告的详细证据源） | 需求定义、其他里程碑的数字 |
 
 **判据一句话**：`PRD` 说「要什么」，`adr` 说「为什么这么定」，`STATUS` 说「现在到哪、测出多少」，
 `AGENTS` 说「怎么写才不踩」，`dev` 说「这台机器为什么跑不起来」，`FAILURE` 说「认自己错在哪」。
@@ -22,7 +23,7 @@
 
 | 目录 | 内容 | 为什么不回改 |
 |---|---|---|
-| [`adr/`](adr/README.md) | **决策唯一权威源**，一文件一 ADR（ADR-001 ~ 012）；演进走末尾 `## 修订（YYYY-MM）` 段 | 保留「当时为什么会走到这一步」；与 PRD 冲突**以 ADR 为准** |
+| [`adr/`](adr/README.md) | **决策唯一权威源**，一文件一 ADR（ADR-001 ~ 014）；演进走末尾 `## 修订（YYYY-MM）` 段 | 保留「当时为什么会走到这一步」；与 PRD 冲突**以 ADR 为准** |
 | [`research/`](research/README.md) | 立项前调研与论证序列 03–06（01 / 02 未公开）；06 是 PRD 回写的唯一依据 | 编号与结论是论证链条的一部分，被推翻的表述以 06 校准为准 |
 
 > 这两类文件里出现的实测数字是**裁决 / 决策时点的证据**，与活文档里的当前值不一致属正常，
@@ -47,4 +48,5 @@
 | 本机跑不起来 / 跑起来少数据 | [`dev/troubleshooting.md`](dev/troubleshooting.md) |
 | 知道某条口径是怎么拍板的 | [`research/06-PRD修订裁决清单.md`](research/06-PRD修订裁决清单.md) |
 | 看这个项目承认自己失败在哪 | [`FAILURE.md`](FAILURE.md)（索引 → 各权威源） |
+| 看压测怎么测的、数字多快 | [`benchmarks/M4-load-report.md`](benchmarks/M4-load-report.md) |
 | 前端（`aiwarden-web`）怎么跑 | [`../aiwarden-web/README.md`](../aiwarden-web/README.md) |

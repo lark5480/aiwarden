@@ -50,6 +50,7 @@
 | 2026-10-07 实测 | 改共享契约只跑 `test-compile` → 半旧 class 造成成片假崩溃 | [`../AGENTS.md`](../AGENTS.md) §4 |
 | 2026-10-07 实测更正 | 先前把容器测试失败归因于 `@TestInstance(PER_CLASS)`，真触发条件是 `@DynamicPropertySource` | [`../AGENTS.md`](../AGENTS.md) §4 |
 | 2026-10-10 实测 | 前端把 mutation 打在响应式代理之外：数据变了但不重渲染 | [`../AGENTS.md`](../AGENTS.md) §4 · [`adr/ADR-012`](adr/ADR-012-chat-orchestration-and-eval.md) 缺陷表 |
+| 2026-10-19 实测 | 子进程集成测试用 `SpringApplicationBuilder.properties()` 配数据源，被 `application.yml` 覆盖 → 连错库（看似「容器没起」） | [`../AGENTS.md`](../AGENTS.md) §4 |
 | M3 评测首轮 | `expectedDocs`「语义相关必命中」在哈希伪嵌入下是抛硬币，该类断言删除 | [`adr/ADR-012`](adr/ADR-012-chat-orchestration-and-eval.md) 修订段 · [`STATUS.md`](STATUS.md) §3 |
 
 ## D. 承诺与默认配置之间的缝隙、以及未达成项
@@ -64,6 +65,11 @@
 | M3 | 评测走 Mock 替身，录制回放 fixture 待真实端点补录（不伪造数据） | [`STATUS.md`](STATUS.md) §3 · [`adr/ADR-012`](adr/ADR-012-chat-orchestration-and-eval.md) 决策 3 |
 | — | 治理税的审计留痕开销 / 每请求总开销 / 吞吐拐点 / P99 未测 | [`STATUS.md`](STATUS.md) §2 结论表 |
 | — | P5 断点续跑整条待验证（M4） | [`STATUS.md`](STATUS.md) §2 结论表 · [`PRD.md`](PRD.md) §8 |
+| 2026-10-19（M4） | P5 已达成：`kill -9` 后续跑成功、副作用不重复——原「待验证」项关闭 | [`adr/ADR-013`](adr/ADR-013-agent-checkpoint-and-resume.md) · [`STATUS.md`](STATUS.md) §2 |
+| 2026-10-19（M4） | 治理税已补齐：审计留痕 / 总开销 / 吞吐拐点 / P99——原「未测」项关闭 | [`benchmarks/M4-load-report.md`](benchmarks/M4-load-report.md) |
+| 2026-10-19（M4） | 模型调用维度归因已接 OTel span（`t_llm_call_log.trace_id` / `cost` 回填） | [`adr/ADR-014`](adr/ADR-014-observability-trace.md) · [`STATUS.md`](STATUS.md) §2 |
+| 2026-10-19（M4） | Loki 日志关联、Tempo/Collector 实跑未完成（本机 Docker Hub 不可直连） | [`STATUS.md`](STATUS.md) §3 · [`research/06`](research/06-PRD修订裁决清单.md) 裁决 27 |
+| 2026-10-19（M4） | K8s/Helm + HPA 可选实验未做（非交付承诺，主动不投入） | [`PRD.md`](PRD.md) §8 · [`research/06`](research/06-PRD修订裁决清单.md) 裁决 27 |
 
 ## E. 环境类静默失效（与项目代码无关）
 
@@ -75,8 +81,9 @@
 | 2026-10-10 实测 | 残留的旧实例进程占着 8080 且跑旧 profile，同时表现为「Kafka 连不上」和「端口占用」 | [`dev/troubleshooting.md`](dev/troubleshooting.md) §3 |
 | 2026-10-10 实测 | 前端只 bind 了 `[::1]:5173`，`127.0.0.1:5173` 被拒；`file://` 直开 `dist` 是纯白页——「什么都看不到」不等于前端坏了 | [`dev/troubleshooting.md`](dev/troubleshooting.md) §6 |
 | 2026-10-10 实测 | 一致性报告 37 份里不一致数**全为 0**（「清单为空」是正确空态却读起来像故障）；孤儿向量曲线需手动采样、且不累积历史 | [`dev/troubleshooting.md`](dev/troubleshooting.md) §7 |
+| 2026-10-19 实测 | 本机 Docker Hub 不可直连（manifest / pull 超时），可观测栈镜像无法拉取、Tempo 未实跑 | [`STATUS.md`](STATUS.md) §3 |
 
 ---
 
-**当前覆盖**：A 4 条 · B 10 条 · C 12 条 · D 8 条 · E 6 条（共 40 条，M1–M3 已登记部分）。
-M4 收官时按 [`PRD.md`](PRD.md) §8.1 增补本期条目并逐条核对指针仍有效。
+**当前覆盖**：A 4 条 · B 10 条 · C 13 条 · D 13 条 · E 7 条（共 47 条，M1–M4 已登记）。
+M4 收官条目已登记；后续翻案立新条目，不回改旧条目。

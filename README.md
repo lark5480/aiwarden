@@ -3,11 +3,11 @@
 > **多租户 AI 数据与用量治理层**（形态：**数据面治理组件**）
 > 把大模型的**不确定性**（删不干净、越权、重复副作用、用量失控、长任务中断）关进 Java 的**确定性**里。
 
-[![Status](https://img.shields.io/badge/status-M3%20%E5%AE%8C%E6%88%90-brightgreen)]()
+[![Status](https://img.shields.io/badge/status-M4%20%E5%AE%8C%E6%88%90-brightgreen)]()
 [![License](https://img.shields.io/badge/License-MIT-lightgrey)]()
 
-> **当前阶段：M3 完成**（M2 的 MVP 基线 + M3 编排内核 / 评测门禁 / Vue 前后端全部落地）。
-> **M0+M1+M2 = MVP，P1 / P2 / P3 / P4a 四项承诺成立**；P4b 已砍（裁决 19）、P5 归 M4。
+> **当前阶段：M4 完成**（M3 的编排 / 评测 / 前后端 + M4 的断点续跑 / 全链路 Trace / 压测 / 失败索引 / 前端管理页）。
+> **M0–M4 全部落地**；P1 / P2 / P3 / P4a / P5 五项承诺成立；P4b 已砍（裁决 19）。
 > 逐切片交付清单与**实测数字**见 [`docs/STATUS.md`](docs/STATUS.md) §1 / §2，里程碑定义见
 > [`docs/PRD.md`](docs/PRD.md) §8——**本页不复制进度描述**（README 每次里程碑重写是本仓库文档之乱的旧形态）。
 
@@ -39,15 +39,35 @@ AIWarden 是一个**面向 Java 技术栈的 AI 应用数据面治理组件**。
 
 | 承诺 | 指标 | 结果 |
 |---|---|---|
-| P1 删除即失效 | 删除生效 **P95**（目标 ≤ 5s）/ 超窗残留进不一致清单的条数 | 自动化用例 **5 轮全 ≤ 5s**（单次断言口径）；P95 分位数度量待 M4 压测；超窗残留由对账发现（M1 用例已证） |
+| P1 删除即失效 | 删除生效 **P95**（目标 ≤ 5s）/ 超窗残留进不一致清单的条数 | 自动化用例 **5 轮全 ≤ 5s**（单次断言口径）；**P95 分位数量化仍未做**（M4 压测未覆盖删除路径，如实标注）；超窗残留由对账发现（M1 用例已证） |
 | P2 检索层隔离 | 越权样本拦截率（20 条） | **100%**（16 条检索类 + 4 条工具类，随 `mvn verify` 门禁） |
 | P3 副作用幂等 | 断网重放后工单数（期望 1） | **1**（自动化用例：重放复用首见结果；`t_ticket` 唯一约束兜底） |
-| P4a 用量可归因 | 四维归因覆盖率 / 配额检查（预扣减 / 幂等）正确性 | 工具链路四维齐备（租户/会话/步骤/工具）；预扣减幂等 / 并发不超卖 / 超限 429 / 对账差异 0（自动化用例）。**注**：模型调用维度的四维归因依赖 M4 的 OTel span，当前仅工具链路 |
+| P4a 用量可归因 | 四维归因覆盖率 / 配额检查（预扣减 / 幂等）正确性 | 工具链路四维齐备（租户/会话/步骤/工具）；预扣减幂等 / 并发不超卖 / 超限 429 / 对账差异 0（自动化用例）。**M4 起模型调用也带 `trace_id` + `cost` 回填**，步骤维度可由 trace 串联 |
 | P4b 预算降级 | 两档降级触发正确性 | **已砍**（2026-10 裁决 19）；地基已就位，重启属新范围 |
-| P5 长任务续跑 | `kill -9` 后续跑成功率 / 副作用重复数 | 待验证（M4） |
-| 评测 | 样本通过率 / P95 延迟 / 单次成本 | **24/24 全绿**、风险样本拦截 **7/7**、重复建单 **0**、P95 **52ms**、单次成本 **0.000509 元**（Mock 替身 + 真实治理管道；**演示单价口径**。逐轮抖动与 nearest-rank 口径见 [`docs/STATUS.md`](docs/STATUS.md) §2） |
-| 治理税 | 逐环节开销四项 / 每请求治理总开销 / 吞吐拐点 / P99 | 四项已实测（P95）：可见集计算 **3.2ms** / filter 下推 **7.1ms** / 计量事件 **0.9ms** / 配额检查 **4.3ms**；**审计留痕开销**与总开销 / 吞吐拐点 / P99 待 M4 压测 |
-| 测试 | `mvn -B -ntp verify` 全绿测试数 | **126**（0 失败 0 跳过；前端 `aiwarden-web` 走独立 `pnpm build` 口径，不计入——见 [`docs/STATUS.md`](docs/STATUS.md) §2） |
+| P5 长任务续跑 | `kill -9` 后续跑成功率 / 副作用重复数 | **已达成（M4）**：崩在「tool 副作用之后、检查点之前」→ 续跑幂等命中 `replayed=true`、工单数 **1**；崩在检查点之后 → 续跑复用快照、不重做；租约未过期时续跑 409（[ADR-013](docs/adr/ADR-013-agent-checkpoint-and-resume.md)） |
+| 评测 | 样本通过率 / P95 延迟 / 单次成本 | **24/24 全绿**、风险样本拦截 **7/7**、重复建单 **0**、P95 **23ms**、单次成本 **0.000869 元**（Mock 替身 + 真实治理管道；**演示单价口径**。逐轮抖动与 nearest-rank 口径见 [`docs/STATUS.md`](docs/STATUS.md) §2） |
+| 治理税 | 逐环节开销 / 每请求总开销 / 吞吐拐点 / P99 | 六项已实测（P95）：可见集 **2.7ms** / filter 下推 **5.9ms** / 计量 **0.7ms** / 配额 **3.9ms** / **审计留痕 1.5ms** / **OTel span 19µs**；六项 P50 相加约 **10.3ms/请求**；拐点 **并发 4（≈70.9 RPS、P99 91.6ms）**。逐项/逐轮与复现见 [压测报告](docs/benchmarks/M4-load-report.md)（单次采样，轮间抖动 10–30%） |
+| 测试 | `mvn -B -ntp verify` 全绿测试数 | **166**（0 失败 0 跳过；前端 `aiwarden-web` 走独立 `pnpm build` 口径，不计入；压测探针 `@Tag("load")` 不计入——见 [`docs/STATUS.md`](docs/STATUS.md) §2） |
+
+---
+
+## 一次「答错」怎么定位（按 traceId 还原，FR-OBS-05）
+
+一次问答的所有 span 共享同一 traceId（`X-Trace-Id` 响应头 / `t_agent_session.trace_id`）；
+按 traceId 查 `GET /api/v1/agent/runs/by-trace/{traceId}` 能看到 10 个节点的检查点时间线，
+在 Grafana → Tempo 能看到 span 树。判断「错在哪一层」看四个位置：
+
+| 看的 span | 关键属性 / 输出 | 能排除什么 |
+|---|---|---|
+| `agent.node.retrieval` | `aiwarden.retrieval.hits` / `min_distance` | 命中 0 条或距离接近 1 → **不是模型幻觉**，是检索没给到上下文（B1） |
+| `agent.node.prompt` | `snippets` / `tools` | 片段进了 Prompt、工具可见面正确 → 排除「上下文没传进去」 |
+| `model.chat` | `aiwarden.model` / tokens | 模型确实被调用；输出文本在 `agent.node.model` 的检查点快照 |
+| `tool.invoke.*` | `aiwarden.tool` / 状态 / `replayed` | 模板/工具参数错误 vs 治理拦截（deny / 重放） |
+
+**真实案例**：M3 评测首轮 6 条样本红——`expectedDocs` 断言「语义相关必命中」失败。
+把同样的四个位置套上去：检索有命中但 `min_distance` 接近 1（确定性哈希伪嵌入不保留语义），
+Prompt 与模型输出都正常——**定位为检索语义边界（B1），不是 Prompt 理解偏差、也不是模型幻觉**；
+据此删除了该类断言（门禁只断言可确定判定的数据面）。这正是「可观测」与「承诺边界」应当互相解释的地方。
 
 ---
 
@@ -89,9 +109,9 @@ AIWarden 是一个**面向 Java 技术栈的 AI 应用数据面治理组件**。
 | AI 层 | **LangChain4j** 核心件 `1.21.0` + SB4 starter 线 `1.21.0-beta31`（自研 SPI 屏蔽，业务代码不直接依赖） |
 | 存储 | **PostgreSQL 16 + pgvector（HNSW）**（与业务表同库事务）· `tsvector` 全文检索 · **Redis 7** · MinIO |
 | 消息 | **Kafka（KRaft 单节点）** |
-| 可观测性 | **Micrometer + OpenTelemetry** + Prometheus / Grafana / Tempo / Loki |
-| 前端 | **Vue 3 + TypeScript + Vite + Element Plus**（`aiwarden-web/`，路由级切分 `/chat` C 端 + `/admin` B 端三页；**独立 pnpm 工程，不经 Maven 构建、不进 `mvn verify`**） |
-| 测试 / 迁移 / 部署 | JUnit 5 + Mockito + Testcontainers + ArchUnit · Flyway · **Docker Compose（主形态）**；K8s/Helm + HPA 为 M4 可选实验，非交付承诺 |
+| 可观测性 | **Micrometer + OpenTelemetry**（W3C Trace Context，OTLP 导出）；指标走 Prometheus 端点；Tempo / Grafana 未加入 compose、也未实跑（见 [`docs/STATUS.md`](docs/STATUS.md) §3） |
+| 前端 | **Vue 3 + TypeScript + Vite + Element Plus**（`aiwarden-web/`，路由级切分 `/chat` C 端 + `/admin` B 端四页；**独立 pnpm 工程，不经 Maven 构建、不进 `mvn verify`**） |
+| 测试 / 迁移 / 部署 | JUnit 5 + Mockito + Testcontainers + ArchUnit · Flyway · **Docker Compose（主形态）**；K8s/Helm + HPA 为可选实验，**未做**（裁决 27，非交付承诺） |
 
 > 🚫 **版本红线**：不得说 Spring Boot 3.5（OSS 已于 2026-06-30 EOL）、不得说 Spring Boot 4.0（OSS 止于 2026-12-31）、
 > 不得用 LangChain4j 1.19.1（官方标记 *published in error, do not use*）。当前底座 = **SB 4.1.1 + LangChain4j 1.21.0 / starter `1.21.0-beta31`**。

@@ -28,8 +28,10 @@
 | [ADR-008](ADR-008-visibility-acl-model.md) | 可见集 ACL 模型与下推算法（主体、四级语义、拒绝与审计） | 已采纳（2026-10-07） | ✔（切片①实测 / M2 复核） |
 | [ADR-009](ADR-009-tool-side-effect-governance.md) | 工具副作用治理机制（幂等键状态机、补偿逆序、工具可见面） | 已采纳（2026-10-07） | ✔（切片②回填 / M2 复核） |
 | [ADR-010](ADR-010-quota-strong-consistency.md) | 配额强一致机制（Redis Lua 预扣减、幂等、对账、限流） | 已采纳（2026-10-07） | ✔（切片③回填 / M2 复核） |
-| [ADR-011](ADR-011-governance-tax-and-mcp.md) | 治理税度量方法（四项微计时口径）与 MCP 最小版取舍 | 已采纳（2026-10-07） | ✔（切片④回填） |
-| [ADR-012](ADR-012-chat-orchestration-and-eval.md) | 问答编排与评测口径（Mock 模型替身 + 真实治理管道） | 已采纳（2026-10-07） | — |
+| [ADR-011](ADR-011-governance-tax-and-mcp.md) | 治理税度量方法（四项微计时口径）与 MCP 最小版取舍 | 已采纳（2026-10-07） | ✔（切片④回填 / M4 压测口径） |
+| [ADR-012](ADR-012-chat-orchestration-and-eval.md) | 问答编排与评测口径（Mock 模型替身 + 真实治理管道） | 已采纳（2026-10-07） | ✔（M3 切片①②③④⑤回填） |
+| [ADR-013](ADR-013-agent-checkpoint-and-resume.md) | Agent Checkpoint 与断点续跑（确定性 DAG + 版本 CAS + 崩溃注入验收） | 已采纳（2026-10-19） | ✔（2026-10 计量幂等） |
+| [ADR-014](ADR-014-observability-trace.md) | 全链路 Trace（OTel + 四类异步边界 + traceparent 持久化） | 已采纳（2026-10-19） | — |
 
 **新增 ADR 的步骤**（保持本目录可用）：
 

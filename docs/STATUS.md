@@ -13,7 +13,7 @@
 
 ## 1. 当前阶段
 
-**M3 完成**（2026-10）——M2 的 MVP 基线 + M3 四个切片全部落地：
+**M4 完成**（2026-10-19）——M3 的 MVP 基线 + M4 五块增量全部落地：
 
 | 里程碑 | 切片 | 内容 |
 |---|---|---|
@@ -25,11 +25,16 @@
 | M3（已完成） | ② | 评测门禁 24 条样本（引擎三件套 + 全栈驱动 + `t_eval_report` + 读取 API） |
 | M3（已完成） | ③④ | Vue 3 前后端 `aiwarden-web`（C 端四要素 + B 端三页；独立 pnpm 工程） |
 | M3（已完成） | ⑤ | 文档收尾回填（本文件 / PRD / README / 06 裁决 21 / ADR-012 修订段） |
+| M4（已完成） | ① | **P5 断点续跑**：10 节点确定性 DAG + `t_agent_session/t_agent_step` 检查点 + 版本 CAS + 租约；`kill -9`/halt 后从检查点续跑、副作用不重复（[ADR-013](adr/ADR-013-agent-checkpoint-and-resume.md)） |
+| M4（已完成） | ② | **OTel 全链路 Trace**：`http.chat → agent.run → 10 节点 → model/tool`，四类异步边界透传；`traceId` 落库 + 响应头 + 按 traceId 查询接口（[ADR-014](adr/ADR-014-observability-trace.md)） |
+| M4（已完成） | ③ | **压测报告**：六项治理税（含审计留痕 / OTel span）+ 六档吞吐 / P99 / 拐点（[报告](benchmarks/M4-load-report.md)） |
+| M4（已完成） | ④ | **`docs/FAILURE.md`** 增补 M4 条目并逐条核对既有指针 |
+| M4（已完成） | ⑤ | **前端**：知识库 / 文档管理页；一致性页补「近 N 轮扫描」空态上下文 + 按 traceId 查步骤时间线 |
 
-**M0+M1+M2 = MVP，P1 / P2 / P3 / P4a 四项承诺成立**；**M3 两项硬交付（评测门禁 + 前后端）均已达成**
-（数据见 §2），并已用**真实 HTTP 端到端联调**验证：SSE 帧序、引用溯源、human_handoff → approve、
-断网重放 `replayed=true` 且工单数 == 1、跨租户 deny 与审计留痕。
-**P4b 已砍（裁决 19）/ P5 归 M4**；里程碑定义见 [`docs/PRD.md`](PRD.md) §8（唯一权威源），
+**M0–M4 完成；P1 / P2 / P3 / P4a / P5 五项承诺成立**（数据见 §2），M3/M4 两项硬交付
+（评测门禁 + 前后端 / 续跑 + 可观测）均已达成。**P4b 已砍（裁决 19）**；
+**K8s/Helm + HPA 可选实验未做（裁决 27，非交付承诺）**；Tempo / Loki 的端到端实跑未完成（§3）。
+里程碑定义见 [`docs/PRD.md`](PRD.md) §8（唯一权威源），
 承诺结论表见本文件 §2（[`README.md`](../README.md) 第一屏是它的对外投影）。
 
 ## 2. 可复现的验证口径（**实测数字的唯一落点**）
@@ -48,23 +53,29 @@
 
 | 承诺 | 指标 | 结果 |
 |---|---|---|
-| P1 删除即失效 | 删除生效 **P95**（目标 ≤ 5s）/ 超窗残留进入不一致清单的条数 | 自动化用例 **5 轮全 ≤ 5s**（**当前为单次断言口径**，非分位数）；P95 分位数量化待 M4 压测；超窗残留由对账发现（M1 用例已证） |
+| P1 删除即失效 | 删除生效 **P95**（目标 ≤ 5s）/ 超窗残留进入不一致清单的条数 | 自动化用例 **5 轮全 ≤ 5s**（**当前为单次断言口径**，非分位数）；**P95 分位数量化仍是残余边界**（M4 压测聚焦治理税与吞吐，未覆盖删除路径，见 §3）；超窗残留由对账发现（M1 用例已证） |
 | P2 检索层隔离 | 越权样本拦截率（20 条） | **100%**（16 条检索类 + 4 条工具类，随 `mvn verify` 门禁） |
 | P3 副作用幂等 | 断网重放后工单数（期望 1） | **1**（重放复用首见结果；`t_ticket` 唯一约束兜底） |
-| P4a 用量可归因 + 配额强一致 | 四维归因覆盖率 / 配额检查（预扣减 / 幂等）正确性 | 工具链路四维齐备（租户/会话/步骤/工具）；预扣减幂等 / 并发不超卖 / 超限 429 / 对账差异 0。**注**：模型调用维度的归因依赖 M4 的 OTel span，当前仅工具链路 |
+| P4a 用量可归因 + 配额强一致 | 四维归因覆盖率 / 配额检查（预扣减 / 幂等）正确性 | 工具链路四维齐备（租户/会话/步骤/工具）；预扣减幂等 / 并发不超卖 / 超限 429 / 对账差异 0。**M4 起模型调用维度也带 trace/step 上下文**（`t_llm_call_log.trace_id` + `cost` 回填），四维归因的「步骤」维度可由 traceId 串联 |
 | P4b 预算降级 | 两档降级触发正确性 | **已砍**（2026-10 裁决 19）；地基已就位，重启属新范围 |
-| P5 长任务续跑 | `kill -9` 后续跑成功率 / 副作用重复数 | 待验证（M4） |
+| P5 长任务续跑 | `kill -9` 后续跑成功率 / 副作用重复数 | **已达成（M4）**：崩在「tool 副作用之后、检查点之前」→ 续跑重做 tool 但幂等命中，`replayed=true`、工单数 **1**；崩在检查点之后 → 续跑复用快照、tool 步骤版本不变、不重做；**崩在 metering 之后、检查点之前** → 续跑重做计量，但 `dedupKey` 唯一键仲裁只落 **1** 条模型明细；**人工断连（ABORTED）后可续跑**（CAS 回 RUNNING）；租约未过期时续跑 409（不并行执行副作用）。证据见 [ADR-013](adr/ADR-013-agent-checkpoint-and-resume.md) |
 | 评测 | 24 条样本通过率 / P95 延迟 / 单次成本 | **24/24 全绿**、风险样本拦截 **7/7**、重复建单 **0**、P95 **23ms**、单次成本 **0.000869 元**（Mock 替身 + 真实治理管道；**演示单价口径**，非真实价目表；**P95 逐轮抖动**——历史轮次 44 / 52 / 58ms，nearest-rank、样本量 24） |
-| 治理税 | 逐环节开销四项 / 每请求总开销 / 吞吐拐点 / P99 | 四项已实测（P95）：可见集计算 **3.2ms** / filter 下推 **7.1ms** / 计量事件 **0.9ms** / 配额检查 **4.3ms**；**审计留痕开销与总开销 / 吞吐拐点 / P99 归 M4** |
+| 治理税 | 逐环节开销（M2 四项 → M4 六项）/ 每请求总开销 / 吞吐拐点 / P99 | M4 补齐六项（P95）：可见集 **2.7ms** / filter 下推 **5.9ms** / 计量事件 **0.7ms** / 配额检查 **3.9ms** / **审计留痕 1.5ms** / **OTel span 19µs**；六项 P50 相加约 **10.3ms/请求**；吞吐拐点 **并发 4**（≈**70.9 RPS**、P99 **91.6ms**），C32 P99 **656.6ms**（吞吐回落）。逐项/逐轮数字与复现命令见 [压测报告](benchmarks/M4-load-report.md)（**单次采样，轮间抖动 10–30%**） |
 
 ### 复现口径（原始证据）
 
-- 本地 `mvn -B -ntp -o verify`：**126 测试全绿**（0 失败 0 跳过）；
+- 本地 `mvn -B -ntp -o verify`：**166 测试全绿**（0 失败 0 跳过）；
   **单次运行口径**（`clean` 后跑一次），机器 `i7-7700（4 物理核 / 8 逻辑核）+ 32GB`。
   其中 M2 收尾为 102 → M3 切片①② 净增 10（112）→ 收官后补测净增 15（**127**：
   `AdminIdentityBoundaryContainersTest` 13 + `MockModelClientTest` 3，扣除随口径调整的 1）
   → **Mock 改抽取式作答后净减 1（126**：`MockModelClientTest` 的「默认回答」与「内联标记」两个用例
   合并为一个「抽取式作答含片段原文与标记」用例，断言更严但方法数少 1）。
+  - **M4 收尾计数（2026-10-19，本轮唯一当前值）**：`mvn -B -ntp verify` → **exit 0 / BUILD SUCCESS / 5:27 min**，
+    三模块汇总 `aiwarden-common` **16** + `aiwarden-knowledge` **8** + `aiwarden-start` **142** = **166**，
+    0 失败 0 跳过。增量（相对上轮 150）：M4 新增 **14**（checkpoint 4 / crash-resume 5 /
+    trace 边界 4 / trace 全链路 1）+ 管理端点参数化 **2**（`AdminIdentityBoundaryContainersTest` 6 → 7 个端点）。
+    **压测探针 `GovernanceLoadProbe`（`@Tag("load")`）不参与 `mvn verify`，不计入**；
+    上轮的「150」是 `16 + 8 + 126` 的合计，历史行保留不回改。
   - **复现记录**：2026-10-10 本轮文档重划后在**同一工作树**上重跑 `mvn -B -ntp verify`（不带 `-o`，
     需要 Testcontainers 起真实 PostgreSQL / Kafka），**exit 0 / BUILD SUCCESS / 4:13 min**，
     reactor 三个有测试的模块各报 `Tests run` 汇总：`aiwarden-common` 16 + `aiwarden-knowledge` 8 +
@@ -73,7 +84,7 @@
     三模块汇总 `16 + 8 + 126` = **150**（其中 start 由 103 降至 **102**，即上面那条净减 1），0 失败 0 跳过。
   - **数数口径（踩过一次，务必按此核）**：测试数只能取 **Maven 的模块汇总行**（`[INFO] Tests run: N`）；
     **不要**把每个测试类的逐行输出或 `target/surefire-reports/TEST-*.xml` 直接相加——聚合测试类会 fork
-    多个 JVM，同名类会出现两行（如 `ArchitectureTest` 分两次输出、`ChatSseContainersTest` 含 1 个 `@Disabled`），
+    多个 JVM，同名类会出现两行（如 `ArchitectureTest` 分两次输出；`@Disabled` 不计入），
     相加会**重复计数**（本轮实测相加得 151，而真值 127；一度据此误判文档有错，核了三遍才确认文档无误）。
 - **评测门禁的原始输出**（`ChatEvalGateContainersTest` 单类复跑，2026-10-10，**Mock 改抽取式作答之后**）：
   `total=24 passed=24 denyBlocked=7/7 duplicateTickets=0 p95=23ms avgCost=0.000869`
@@ -81,9 +92,17 @@
   **数字为何比上一轮变**：抽取式作答让回答正文变长（每条命中片段都被引入正文），
   completion tokens 随之增加 → 单次成本上升；P95 反而下降是**本轮样本的抖动**（nearest-rank、24 条），
   不构成「改动让系统变快」的结论。
-- **前端独立口径**：`aiwarden-web` 是独立 pnpm 工程，**不进 `mvn verify`、不计入上面的 126**；
+- **前端独立口径**：`aiwarden-web` 是独立 pnpm 工程，**不进 `mvn verify`、不计入上面的 166**；
   其验证是 `pnpm build`（含 `vue-tsc --noEmit` 类型检查）通过 + `pnpm dev` 启动无编译错误，
   并已用真实后端做端到端联调（经 Vite 代理 5173→8080 打通 `/api`、`/actuator/prometheus` 与 SSE 流）。
+  **M4 新增的 KB 管理页 / 一致性页 Trace 查询**，本轮验证口径仍是 `pnpm build` 通过，
+  未做新一轮浏览器点击实测（如实标注，见 §3）。
+- **M4 压测的复现口径**：`aiwarden-start` 的 `GovernanceLoadProbe`（类名不以 Test 结尾，**不参与 `mvn verify`**）
+  一次跑完六项治理税 + 六档吞吐；命令、机器规格、逐轮原始输出与边界见
+  [`docs/benchmarks/M4-load-report.md`](benchmarks/M4-load-report.md)（逐项数字的权威源）。
+- **M4 新增的自动化验证**（随 `mvn verify`）：`AgentCrashResumeContainersTest` 5（含崩溃在 metering 的计量去重）+
+  `AgentCheckpointStoreContainersTest` 4 + `TracePropagationTest` 4 + `AgentTraceContainersTest` 1；
+  另在既有容器测试里补了文档列表接口、一致性历史报告接口的断言。
 - **启动命令口径**：`mvn -B -ntp -DskipTests install`（一次；改了兄弟模块后重跑）
   → `mvn -B -ntp -pl aiwarden-start spring-boot:run -Dspring-boot.run.profiles=local`（本机）。
   **不能写成 `-pl aiwarden-start -am spring-boot:run`**。三种死法、IDE 启动、改兄弟模块为何必须重 `install`
@@ -105,10 +124,12 @@
   （[ADR-012](adr/ADR-012-chat-orchestration-and-eval.md) 决策 3）。首轮曾用 `expectedDocs` 断言「语义相关必命中」，
   实测在哈希伪嵌入下是抛硬币，已删除该类断言——门禁只断言可确定判定的数据面。
 - **一致性是「有 SLO 的可对账」**，不是绝对一致（B2）；残余窗口可查询、有指标、可修复。
-- **P1 的 SLO 口径**：实际执行的是「5 轮单次断言 ≤ 5s」，**非 P95 分位数**（分位数留 M4 压测）。
-- **P4a 四维归因**：工具链路四维齐备；**模型调用维度依赖 M4 的 OTel span，当前未实现**。
+- **P1 的 SLO 口径**：实际执行的是「5 轮单次断言 ≤ 5s」，**非 P95 分位数**。M4 压测聚焦治理税与吞吐，
+  **未覆盖删除路径**，P95 分位数量化仍是残余边界（不把「5 轮全过」写成「P95 ≤5s」）。
+- **P4a 四维归因**：工具链路四维齐备；M4 起模型调用维度带 `trace_id` 与 `cost` 回填，
+  「步骤」维度可由 traceId + `t_llm_call_log.step_no` 串联（不再依赖「M4 的 OTel span 未实现」这一边界）。
 - **M3 模型侧**：无真实模型端点，问答链路走 **Mock 替身**（确定性剧本）；录制回放机制已就绪，
-  **fixture 待真实端点补录**（不伪造数据）。单轮问答 + 会话标识，多轮上下文与 Checkpoint 归 M4。
+  **fixture 待真实端点补录**（不伪造数据）。M4 的 P5 是「同一次运行的续跑」，**多轮对话上下文仍未做**。
 - **人工确认卡片默认不出现（演示需显式打开开关）**：`aiwarden.agent.tools.require-approval` 缺省为空，
   即默认配置下 C 端「待处理」卡片永不出现（机制本身有容器测试覆盖，缺的是演示开关）。
   **展示 human_handoff 链路时必须带参数**：`-Daiwarden.agent.tools.require-approval=create_ticket`。
@@ -138,21 +159,30 @@
   （kafka 内部 19092 + `kafka-proxy` 顶到宿主机 **29092**），本机启动需激活 profile `local`，Linux / CI 不需要。
   **根因、判据与处置的唯一正文见 [`docs/dev/troubleshooting.md`](dev/troubleshooting.md) 第 2 条。**
   实测已全链路打通：outbox 全 SENT、文档摄入 INDEXED、计量落 `t_llm_call_log`、用量接口返回真实明细。
-- **未做**：P4b（预算降级，裁决 19 砍除）、P5（断点续跑，M4）、用户鉴权（M3 身份头为认证层输出的模拟）；
-  **`t_llm_call_log.cost` 回填与 OTel span 归 M4**。
+- **M4 的已知边界（如实标注，不写成已达成）**：
+  ① **P1 的 P95 仍未量化**（压测未覆盖删除路径，见上）；
+  ② **Tempo / OTel Collector 未实跑、也未加入 compose**：本机 Docker Hub 不可直连（`manifest` / `pull` 超时），
+     可观测栈镜像拉不到，因此不写无法验证的镜像 tag；trace 正确性由 OTel SDK 内存 exporter 的全链路测试证明，
+     `AIWARDEN_TRACE_EXPORT_ENABLED` 默认关闭，起好 collector 后再打开（配置在 `application.yml`）；
+  ③ **Loki 日志关联未接入**：FR-OBS-04 的三信号互跳只完成 Metric ↔ Trace 与业务 ID；
+  ④ **K8s/Helm + HPA 未做**（裁决 27，非承诺）；
+  ⑤ **P5 的「kill -9」用 `Runtime.halt(137)` 复现**：同为无关闭钩子、无 flush 的进程终止，
+     但未在 Linux 上真的发 SIGKILL；测试形态与退出码断言见 ADR-013；
+  ⑥ **前端 KB 页 / Trace 查询本轮只过了 `pnpm build`**，未做新一轮浏览器点击实测（旧三页有浏览器实测记录）。
+- **未做（汇总）**：P4b（预算降级，裁决 19 砍除）、用户鉴权（身份头为认证层输出的模拟）、
+  P1 删除 P95 分位数量化、Loki 日志采集、K8s/Helm、真实模型 fixture。
 
 ## 4. 下一步
 
-- **M4**：P5 断点续跑 + OTel 全链路 Trace + 压测报告（P95/P99 与吞吐拐点）+ K8s 可选实验，
-  以及上一条「B 端主体校验口径统一」。
-- **M4 同时补 [`FAILURE.md`](FAILURE.md) 失败索引**：随本期新增条目登记，并逐条核对既有指针仍然有效
-  （交付物定义与产出时点见 [`PRD.md`](PRD.md) §8.1）。
-- **M4 前端一条**（2026-10-10 由实测反馈提出，属体验而非功能）：B 端三个读页目前只有「读」没有「操作」——
-  知识库与文档**只能在库里手工插、或用 curl 调接口**（`POST /api/v1/knowledge-bases`、
-  `POST /api/v1/knowledge-bases/{kbId}/documents`），演示时很别扭。M4 补两块：
-  ① **KB / 文档管理页**（建库、传文档、看摄入状态，上传接口返回体不含 `kbId`，页面需自己记住当前库）；
-  ② **给一致性页补上下文**（如「近 N 轮扫描均未发现不一致」）——现在的「不一致清单为空」与故障长得一样，
-  空态与「系统在正常工作」应当能区分（判据见 [`docs/dev/troubleshooting.md`](dev/troubleshooting.md) §7）。
+M4 已收口。若继续，按「先补可验证性、再扩范围」排序：
+
+- **P1 删除延迟 P95 量化**：在 Kafka 消费链路下做 ≥20 轮删除 → 检索 0 命中的分位数统计，
+  把 §2 的「5 轮单次断言」升级为与 PRD §12 同口径的 P95（这是当前最明确的未达成项）。
+- **可观测整套实跑**：拉取 Collector / Tempo / Grafana 镜像（需先解决本机 Docker Hub 代理），
+  用真实 OTLP 链路复跑 `AgentTraceContainersTest` 的同一 traceId，补 Loki 日志关联。
+- **真实模型 fixture**：录制回放轨的 fixture 仍待真实端点补录（不伪造数据）。
+- **前端浏览器实测**：KB 管理页与一致性页 Trace 查询做一轮无头 Chrome 真实交互（口径同 M3）。
+- **可选**：K8s/Helm + HPA + 探针（裁决 4/27，非承诺）。
 
 里程碑定义见 [`docs/PRD.md`](PRD.md) §8（唯一权威源）。
 

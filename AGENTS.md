@@ -35,6 +35,7 @@
 | 要做什么、验收标准、范围、里程碑定义 | [`docs/PRD.md`](docs/PRD.md) | 一行指针 |
 | 技术 / 版本选型为什么这么定 | [`docs/adr/`](docs/adr/README.md)（与 PRD 冲突以 ADR 为准） | 一行指针 |
 | **实测数字与验证口径**（测试数 / 评测结论 / 治理税 / P95 / 单次成本） | [`docs/STATUS.md`](docs/STATUS.md) §2 | 结论摘要 + 指针；README 第一屏是它的**对外投影** |
+| **压测报告**（逐项治理税 / 吞吐与 P99 / 原始输出 / 复现命令） | [`docs/benchmarks/M4-load-report.md`](docs/benchmarks/M4-load-report.md) | STATUS §2 只留结论摘要 + 指针（裁决 26） |
 | 当前阶段 / 已知边界 / 公开范围 | [`docs/STATUS.md`](docs/STATUS.md) §1/§3/§5 | 摘要 + 指针 |
 | **本机环境排障**（端口、进程、容器、profile、Maven reactor） | [`docs/dev/troubleshooting.md`](docs/dev/troubleshooting.md) | 症状一句话 + 指针 |
 | **代码 / 配置层面的机制坑**（写错会静默不生效的东西） | 本文件 §4 | 指针 |
@@ -101,8 +102,9 @@ awk '/^### 结论表/,/^### 复现口径/' docs/STATUS.md \
   所以本条把「同步」换成「**归位**」：事实写一次，别处指过去。
 - **测试数只能用 Maven 的模块汇总行**：`[INFO] Tests run: N`（各模块 `Results:` 段那两行）。
   **不要**把每个测试类的逐行输出、或 `target/surefire-reports/TEST-*.xml` 直接相加——聚合测试类会 fork 多 JVM，
-  同名类出现两行，另有 `@Disabled` 不计入；实测按后者算得 151，而真值 **127**（现为 **126**，
-  曾因 Mock 单测两例合一而净减 1），差点把正确的文档改成错的。
+  同名类出现两行，另有 `@Disabled` 不计入；实测按后者算得 151，而真值 **127**（当前值见
+  [`docs/STATUS.md`](docs/STATUS.md) §2；M4 新增 checkpoint / crash-resume / trace 等用例；
+  压测探针 `@Tag("load")` 不参与），差点把正确的文档改成错的。
   判据：**只信汇总行**；要复核就把三个有测试的模块的 `Tests run` 相加（`common` + `knowledge` + `start`）。
 
 **提交前自查**：
@@ -224,6 +226,17 @@ awk '/^### 结论表/,/^### 复现口径/' docs/STATUS.md \
   纪律（改了任一兄弟模块先 `install` 再 run；`java -jar` 只在 `package` 时生成）与可用命令、
   含**为何不能写 `-pl aiwarden-start -am spring-boot:run` 的三种死法**，唯一正文见
   [`docs/dev/troubleshooting.md`](docs/dev/troubleshooting.md) 第 4 条。
+- **子进程集成测试的两个静默坑（M4 实测）**：① `SpringApplicationBuilder.properties(...)` 是**默认值**，
+  会被 `application.yml` 里显式写的 `spring.datasource.url` 覆盖——子进程于是连到 `localhost:5432` 而不是
+  测试容器，报错看起来像「容器没起」；要用**命令行参数** `--spring.datasource.url=...`（最高优先级）。
+  ② Windows 下子进程 stdout 重定向到文件时按控制台代码页写，父进程用 UTF-8 读日志会抛
+  `MalformedInputException: Input length = 1`（断言里只看到「读不到日志」）；要显式给子进程
+  `-Dstdout.encoding=UTF-8 -Dstderr.encoding=UTF-8`。判据：**子进程连错库先查配置优先级，读不到日志先查编码。**
+- **检查点提交之前的持久化动作在崩溃续跑时会重做（M4 实测）**：`MeteringNode` 在检查点提交前写 outbox，
+  崩在两者之间会让续跑再写一条计量事件。计量事件必须带幂等键（模型 `model:<runId>:<stepNo>`、
+  工具 `tool:<invocationId>`），消费端以 `t_llm_call_log.dedup_key` 唯一索引 + `ON CONFLICT DO NOTHING` 仲裁；
+  嵌入计量暂为 NULL（摄入侧由 ledger 保护）。判据：**凡是「先写持久化副作用、后提交检查点」的节点，
+  都要问一句续跑重做时这条写入是否幂等。** 证据见 `AgentCrashResumeContainersTest` 的 crash-at-metering 用例。
 - **本机环境类症状不在本节，判据与处置的唯一正文见 [`docs/dev/troubleshooting.md`](docs/dev/troubleshooting.md)**。
   四条最容易被误判成「代码 / 装配问题」的现象，认症状即可（正文各自展开）：
   ① **B 端评测报告页在本地开发库必为 404**（`t_eval_report` 由门禁测试写进 Testcontainers 的临时库，容器即销毁）——

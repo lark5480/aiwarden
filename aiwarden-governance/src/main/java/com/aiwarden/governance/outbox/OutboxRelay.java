@@ -2,6 +2,9 @@ package com.aiwarden.governance.outbox;
 
 import com.aiwarden.common.tenant.TenantContext;
 import com.aiwarden.governance.messaging.KafkaHeadersCarrier;
+import com.aiwarden.governance.tracing.TraceSupport;
+import io.micrometer.tracing.Span;
+import io.micrometer.tracing.Tracer;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -11,6 +14,7 @@ import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
@@ -40,13 +44,16 @@ public class OutboxRelay {
 
     private final JdbcTemplate jdbcTemplate;
     private final KafkaTemplate<String, String> kafkaTemplate;
+    private final TraceSupport traceSupport;
     private final boolean pollEnabled;
 
     public OutboxRelay(JdbcTemplate jdbcTemplate,
                        KafkaTemplate<String, String> kafkaTemplate,
+                       TraceSupport traceSupport,
                        @Value("${aiwarden.outbox.relay.enabled:true}") boolean pollEnabled) {
         this.jdbcTemplate = jdbcTemplate;
         this.kafkaTemplate = kafkaTemplate;
+        this.traceSupport = traceSupport;
         this.pollEnabled = pollEnabled;
     }
 
@@ -69,7 +76,7 @@ public class OutboxRelay {
     /** 单轮发布：返回成功发送条数（测试与对账可复用）。 */
     public int pollOnce() {
         List<OutboxEventRow> events = jdbcTemplate.query("""
-                SELECT id, tenant_id, aggregate_id, type, payload
+                SELECT id, tenant_id, aggregate_id, type, payload, trace_parent
                 FROM t_outbox_event
                 WHERE status = 'PENDING'
                 ORDER BY id
@@ -79,7 +86,8 @@ public class OutboxRelay {
                 rs.getLong("tenant_id"),
                 rs.getLong("aggregate_id"),
                 rs.getString("type"),
-                rs.getString("payload")), BATCH_SIZE);
+                rs.getString("payload"),
+                rs.getString("trace_parent")), BATCH_SIZE);
 
         int sent = 0;
         for (OutboxEventRow event : events) {
@@ -91,7 +99,12 @@ public class OutboxRelay {
     }
 
     private boolean publish(OutboxEventRow event) {
-        try {
+        // 定时任务边界（FR-OBS-02）：父上下文来自事件写入时捕获的 traceparent，而不是当前线程。
+        Span span = traceSupport.startSpan("outbox.publish", event.traceParent());
+        span.tag("messaging.system", "kafka");
+        span.tag("messaging.destination.name", event.type());
+        span.tag("aiwarden.outbox.id", String.valueOf(event.id()));
+        try (Tracer.SpanInScope ignored = traceSupport.withSpan(span)) {
             TenantContext.runWithTenant(String.valueOf(event.tenantId()), () -> send(event));
             int updated = jdbcTemplate.update("""
                     UPDATE t_outbox_event SET status = 'SENT', sent_at = now()
@@ -107,6 +120,8 @@ public class OutboxRelay {
                     WHERE id = ?
                     """, MAX_RETRY, event.id());
             return false;
+        } finally {
+            traceSupport.end(span);
         }
     }
 
@@ -114,6 +129,12 @@ public class OutboxRelay {
         ProducerRecord<String, String> record = new ProducerRecord<>(
                 event.type(), String.valueOf(event.aggregateId()), event.payload());
         TenantContext.writeToCarrier(new KafkaHeadersCarrier(record.headers()));
+        // 把当前 span（outbox.publish）的 traceparent 交给消费端：消费 span 是它的子 span，
+        // 调用链因此跨「定时发布 → Kafka → 消费」连续，而不是两段互不相关的 trace。
+        String traceParent = traceSupport.currentTraceParent();
+        if (traceParent != null) {
+            record.headers().add(TraceSupport.TRACEPARENT, traceParent.getBytes(StandardCharsets.UTF_8));
+        }
         try {
             // 同步等待 broker 确认：发送成功才允许标记 SENT（吞吐优化留压测阶段，演示规模无需）
             kafkaTemplate.send(record).get(10, TimeUnit.SECONDS);
@@ -128,6 +149,7 @@ public class OutboxRelay {
     }
 
     /** outbox 行（内部读取模型）。 */
-    record OutboxEventRow(long id, long tenantId, long aggregateId, String type, String payload) {
+    record OutboxEventRow(long id, long tenantId, long aggregateId, String type, String payload,
+                          String traceParent) {
     }
 }

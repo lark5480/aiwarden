@@ -61,6 +61,13 @@
             <artifactId>micrometer-registry-prometheus</artifactId>
         </dependency>
 
+        <!-- 全链路 Trace（M4 / FR-OBS）：官方 starter 一并带来 micrometer-tracing 桥接（OTel）、
+             W3C 传播器与 OTLP exporter；导出端点见 application.yml（默认指向 compose 的 collector）。 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-opentelemetry</artifactId>
+        </dependency>
+
         <!-- AI 层：核心件与 SB4 starter 两个坐标共存，显式声明以锁精确版本（版本形态不同，见根 pom / ADR-001） -->
         <dependency>
             <groupId>dev.langchain4j</groupId>
@@ -125,6 +132,19 @@
         <dependency>
             <groupId>org.testcontainers</groupId>
             <artifactId>testcontainers-kafka</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <!-- Trace 断言（M4 / FR-OBS-02）：micrometer 的 SimpleTracer + OTel SDK 内存 exporter。
+             生产链路用 OTel bridge；测试用内存 exporter 按 traceId 还原 span 树，不依赖外部 collector。 -->
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-tracing-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.opentelemetry</groupId>
+            <artifactId>opentelemetry-sdk-testing</artifactId>
             <scope>test</scope>
         </dependency>
 

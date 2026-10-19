@@ -51,5 +51,11 @@
             <groupId>io.micrometer</groupId>
             <artifactId>micrometer-core</artifactId>
         </dependency>
+        <!-- Trace API（M4 / FR-OBS）：只依赖 API，实现（OTel bridge / exporter）在 start 装配根。
+             用 ObjectProvider 取 bean——治理层单测没有 tracing 实现时退化为 NOOP，不炸上下文。 -->
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-tracing</artifactId>
+        </dependency>
     </dependencies>
 </project>

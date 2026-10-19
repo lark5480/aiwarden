@@ -1,5 +1,6 @@
 package com.aiwarden.governance.outbox;
 
+import com.aiwarden.governance.tracing.TraceSupport;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
@@ -13,9 +14,11 @@ import org.springframework.stereotype.Component;
 public class OutboxWriter {
 
     private final JdbcTemplate jdbcTemplate;
+    private final TraceSupport traceSupport;
 
-    public OutboxWriter(JdbcTemplate jdbcTemplate) {
+    public OutboxWriter(JdbcTemplate jdbcTemplate, TraceSupport traceSupport) {
         this.jdbcTemplate = jdbcTemplate;
+        this.traceSupport = traceSupport;
     }
 
     /**
@@ -27,9 +30,12 @@ public class OutboxWriter {
      * @param payloadJson 事件载荷（JSON 字符串，落 JSONB）
      */
     public void append(long tenantId, long aggregateId, String type, String payloadJson) {
+        // traceparent 在**写入时**捕获：发送发生在定时任务里，那时当前线程已没有请求上下文（FR-OBS-02）。
+        String traceParent = traceSupport.currentTraceParent();
         jdbcTemplate.update("""
-                INSERT INTO t_outbox_event (tenant_id, aggregate_id, type, payload, status, retry_count)
-                VALUES (?, ?, ?, ?::jsonb, 'PENDING', 0)
-                """, tenantId, aggregateId, type, payloadJson);
+                INSERT INTO t_outbox_event
+                    (tenant_id, aggregate_id, type, payload, status, retry_count, trace_parent)
+                VALUES (?, ?, ?, ?::jsonb, 'PENDING', 0, ?)
+                """, tenantId, aggregateId, type, payloadJson, traceParent);
     }
 }

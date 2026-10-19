@@ -3,6 +3,7 @@ package com.aiwarden.knowledge.document;
 import com.aiwarden.common.exception.NotFoundException;
 import com.aiwarden.contract.knowledge.DocumentDeleteResponse;
 import com.aiwarden.contract.knowledge.DocumentStatusResponse;
+import com.aiwarden.contract.knowledge.DocumentSummary;
 import com.aiwarden.contract.knowledge.DocumentUploadResponse;
 import com.aiwarden.core.event.DocumentEventTypes;
 import com.aiwarden.governance.outbox.OutboxWriter;
@@ -88,9 +89,31 @@ public class DocumentService {
         return new DocumentDeleteResponse(docId + ":" + version, docId);
     }
 
+    /**
+     * 文档列表（FR-ADM-02）：B 端管理页看得到「有哪些文档、各自摄入到哪一步」。
+     * 只返回未删除文档；跨租户 / 不存在统一 404（与单文档查询同口径）。
+     */
+    public List<DocumentSummary> list(long tenantId, long kbId) {
+        Integer kbCount = jdbcTemplate.queryForObject(
+                "SELECT count(*) FROM t_knowledge_base WHERE tenant_id = ? AND id = ?",
+                Integer.class, tenantId, kbId);
+        if (kbCount == null || kbCount == 0) {
+            throw new NotFoundException("知识库不存在：kbId=" + kbId);
+        }
+        return jdbcTemplate.query("""
+                        SELECT id, name, version, status,
+                               to_char(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS updated
+                        FROM t_document
+                        WHERE tenant_id = ? AND kb_id = ? AND deleted_at IS NULL
+                        ORDER BY id
+                        """,
+                (rs, rowNum) -> new DocumentSummary(rs.getLong("id"), rs.getString("name"),
+                        rs.getInt("version"), rs.getString("status"), rs.getString("updated")),
+                tenantId, kbId);
+    }
+
     /** 状态查询（FR-KB-04）：文档级状态 + 账本明细（索引进度 / 清理进度 / 失败原因）。 */
-    public DocumentStatusResponse status(long tenantId, long docId) {
-        List<Map<String, Object>> rows = jdbcTemplate.queryForList("""
+    public DocumentStatusResponse status(long tenantId, long docId) {        List<Map<String, Object>> rows = jdbcTemplate.queryForList("""
                 SELECT id, version, status FROM t_document WHERE tenant_id = ? AND id = ?
                 """, tenantId, docId);
         if (rows.isEmpty()) {

@@ -21,31 +21,16 @@ pnpm preview      # 预览 dist/
 
 ## 后端依赖
 
-前端自身不需要数据库，但接口来自后端，**必须先起后端**：
-
-```bash
-# 1) 基础设施（PostgreSQL + pgvector / Redis / Kafka / MinIO）
-docker compose up -d
-
-# 2) 首次：把各模块装进本地仓库（改了兄弟模块后需重跑）
-mvn -B -ntp -DskipTests install
-
-# 3) Spring Boot 应用（aiwarden-start，缺省端口 8080）
-#    Windows 本机需带 local profile（Kafka 端口被 Windows 保留区间占用的绕行，见 docs/dev/troubleshooting.md 第 2 条）
-mvn -B -ntp -pl aiwarden-start spring-boot:run -Dspring-boot.run.profiles=local
-```
-
-> ⚠️ **不要写成 `mvn -pl aiwarden-start -am spring-boot:run`**（会报 `Unable to find a suitable main class`）。
-> **多模块启动的正确两步与三种死法、IDE 启动方式、`5432 refused` 与 Kafka 保留端口的判据——
-> 唯一正文见 [`docs/dev/troubleshooting.md`](../docs/dev/troubleshooting.md)（第 1 / 2 / 4 条）。**
->
-> **用 IDE 启动最省事**：直接跑 `com.aiwarden.start.AiwardenApplication#main`（IDE 自带模块 classpath，无需 install），
-> 但两个硬前提不变：**基础设施已起** + Windows 本机带 profile `local`。
+前端自身不需要数据库，但接口来自后端，**必须先起后端**：基础设施 → 把模块装进本地仓库 → 带 profile `local` 启动。
+**命令序列的正文在根 [`../README.md`](../README.md)「本地怎么跑起来」**；`spring-boot:run` 三种写法各自的死法、
+IDE 启动方式、`5432 refused` 与 Kafka 保留端口的判据——唯一正文见
+[`../docs/dev/troubleshooting.md`](../docs/dev/troubleshooting.md)（第 1 / 2 / 4 / 9 条）。两个硬前提不变：
+**基础设施已起** + **Windows 本机带 profile `local`**。
 
 后端就绪判断：`GET http://localhost:8080/actuator/health`。
 
-> **评测报告页初始为空是预期的**：`t_eval_report` 由评测门禁测试写进 Testcontainers 的临时库，
-> 本地开发库没有数据，接口会返回 404 + `{"detail":"暂无评测报告…"}`，本页会把该原文显示出来。
+> **评测报告页初始 404、页面上演示不到「缺失即 400」**都不是故障：判据与演示分工的唯一正文见
+> [`../docs/dev/troubleshooting.md`](../docs/dev/troubleshooting.md) 第 5 / 11 / 12 条。
 
 ### 接口与代理
 

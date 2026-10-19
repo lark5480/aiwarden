@@ -41,7 +41,7 @@
 > 新增回归用例 `ConsistencyReconcileContainersTest` 摄入停摆判据段（测试数 166 → **167**）；同日第二轮审计
 > 又补**删除事件/旧版本事件不重驱动 + 旧版本账本不误报** 三个回归，当前 **170**；
 > 同时校正三处数字/判据口径（评测 P95 改抖动范围、压测拐点判据、单类复跑命令的必需 flag）。
-> 依据：[ADR-006 修订段](adr/ADR-006-reconcile-readonly.md)、[AGENTS.md](../AGENTS.md) §4、
+> 依据：[ADR-006 修订段](adr/ADR-006-reconcile-readonly.md)、[PITFALLS.md](PITFALLS.md) P16 / P17、
 > [FAILURE.md](FAILURE.md) C/D 类。
 里程碑定义见 [`docs/PRD.md`](PRD.md) §8（唯一权威源），
 承诺结论表见本文件 §2（[`README.md`](../README.md) 第一屏是它的对外投影）。
@@ -115,7 +115,7 @@
     重复建单 / 成本是可复算口径，**P95 不是**——已按裁决 29 改为区间书写。
   - **单类复跑命令（照抄可用，flag 不可省）**：
     `mvn -B -ntp -pl aiwarden-start -am test -Dtest=ChatEvalGateContainersTest -Dsurefire.failIfNoSpecifiedTests=false`
-    （本机需 `DOCKER_HOST` npipe 绕行，见 [`AGENTS.md`](../AGENTS.md) §4）。
+    （本机需 `DOCKER_HOST` npipe 绕行，见 [`PITFALLS.md`](PITFALLS.md) P10）。
     **`-Dsurefire.failIfNoSpecifiedTests=false` 是必需的**：`-am` 会把 `aiwarden-common` 等
     没有匹配类的兄弟模块拉进 reactor，缺这个 flag 直接 `BUILD FAILURE: No tests matching pattern`
     （2026-10-19 实测踩过，1.5s 就失败，看起来像测试坏了、其实是模块选择问题）。
@@ -127,7 +127,7 @@
   **30 轮、relay 按生产默认 2000ms 调度、全程不手动 `pollOnce()`**（`INDEXED` 能到达本身就是调度生效的自证），
   计时终点为「按原文检索 0 命中」。命令：
   `mvn -B -ntp -pl aiwarden-start -am test -Dtest=P1DeleteSloProbe -Dsurefire.failIfNoSpecifiedTests=false`
-  （需 Docker；本机 npipe 绕行见 [`AGENTS.md`](../AGENTS.md) §4）；逐轮样本与 P50/P95/max 写在
+  （需 Docker；本机 npipe 绕行见 [`PITFALLS.md`](PITFALLS.md) P10）；逐轮样本与 P50/P95/max 写在
   `aiwarden-start/target/p1-delete-slo.txt`。
 - **前端独立口径**：`aiwarden-web` 是独立 pnpm 工程，**不进 `mvn verify`、不计入上面的 170**；
   其验证是 `pnpm build`（含 `vue-tsc --noEmit` 类型检查）通过 + `pnpm dev` 启动无编译错误，
@@ -137,19 +137,19 @@
   删除二次确认；一致性页 scan 抓到注入的孤儿向量（`mismatchCount=1`）→ repair → 复扫归零、
   近 20 轮扫描上下文、孤儿曲线手动采样出点、**按 traceId 渲染出 10 步检查点时间线**；
   用量页 58 条明细与前端自算聚合；评测页读数 + 逐样本表；C 端问答页引用侧栏 4 条、步骤时间线、
-  成本与结局（同时回归了 [`AGENTS.md`](../AGENTS.md) §4 那条「mutation 打在代理之外」的坑——引用侧栏正常计数）。
+  成本与结局（同时回归了 [`PITFALLS.md`](PITFALLS.md) P20 那条「mutation 打在代理之外」的坑——引用侧栏正常计数）。
   **手法限制（2026-10-19 下午更新）**：本机 Qoder 内置浏览器在无可见 surface 时指针事件报
   `NATIVE_BROWSER_VIEWPORT_UNAVAILABLE`，交互经 CDP 在同一页面里派发**真实 DOM 事件**并断言 DOM，
   与 M3 的点击实测等价；**同日起截图存证可用**（本轮 KB 页 / Trace 时间线均已产出 PNG，视口约 1015px 宽）。
-  **C 端与 B 端的时间线口径不同**（别当成矛盾）：C 端 SSE 只发 5 类 `step`（visibility / retrieval /
-  prompt / model / metering，tool·cost·outcome 各有独立事件），**完整 10 步**在 B 端
-  `GET /api/v1/agent/runs/by-trace/{traceId}`（DB 检查点）——「10 步时间线」这句承诺指的是后者。
+  **C 端与 B 端的时间线口径不同**（别当成矛盾）：C 端 SSE 只发 5 类 `step`，**完整 10 步**在 B 端
+  `GET /api/v1/agent/runs/by-trace/{traceId}`（DB 检查点）——口径正文见
+  [ADR-014「使用配方」段](adr/ADR-014-observability-trace.md)。
   - **同日第二轮 KB / Trace 实测补记（2026-10-19 下午，接续上条）**：① traceId **从浏览器侧的
     `X-Trace-Id` 响应头取到**再回 B 端查询（此前只证过 traceId 落库 + 接口可读），10 步全 `SUCCEEDED`
     且逐步耗时与 C 端 SSE 时间线对齐；空输入与不存在 traceId 的空态文案都在页面渲染；
     ② KB 页跑完整「创建 → 上传 → 轮询 `INDEXED` → 删除」，删除收敛到数据面自证
     （chunks / 向量归零 + 下一轮对账 `mismatchCount=0`、`orphanVectors=0`）。
-    **本轮新暴露的两条身份判据不在这里写正文**（前端守门使「缺失即 400」在页面上演不到、
+    **本轮新暴露的两条身份判据不在这里写正文**（前端守门使「缺失即 400」在页面上演示不到、
     换不存在的租户后 B 端全空但接口全 200）——见 §3 ⑦ 与
     [`dev/troubleshooting.md`](dev/troubleshooting.md) 第 11 / 12 条（裁决 31）。
 - **M4 压测的复现口径**：`aiwarden-start` 的 `GovernanceLoadProbe`（类名不以 Test 结尾，**不参与 `mvn verify`**）
@@ -158,15 +158,13 @@
 - **M4 新增的自动化验证**（随 `mvn verify`）：`AgentCrashResumeContainersTest` 5（含崩溃在 metering 的计量去重）+
   `AgentCheckpointStoreContainersTest` 4 + `TracePropagationTest` 4 + `AgentTraceContainersTest` 1；
   另在既有容器测试里补了文档列表接口、一致性历史报告接口的断言。
-- **启动命令口径**：`mvn -B -ntp -DskipTests install`（一次；改了兄弟模块后重跑）
-  → `mvn -B -ntp -pl aiwarden-start spring-boot:run -Dspring-boot.run.profiles=local`（本机）。
-  **不能写成 `-pl aiwarden-start -am spring-boot:run`**。三种死法、IDE 启动、改兄弟模块为何必须重 `install`
-  ——唯一正文见 [`docs/dev/troubleshooting.md`](dev/troubleshooting.md) 第 4 条。
-- **启动冒烟（本轮新增的必做验证）**：`mvn -pl aiwarden-start -am package -DskipTests` + `java -jar` 能启动——
-  因为**测试全绿不等于应用能启动**（本轮实测：装配模块的 test scope 依赖把运行期 Redis 客户端挤掉，
-  112 个测试全绿而 `java -jar` 直接失败）。机制、判据与同类「装配面/运行面脱钩」坑见 [`AGENTS.md`](../AGENTS.md) §4。
-- 本机 Testcontainers 偶发 npipe 抖动的复现命令见 [`AGENTS.md`](../AGENTS.md) §4（环境类处置另见
-  [`docs/dev/troubleshooting.md`](dev/troubleshooting.md) 第 10 条）；CI（Linux）不受影响。
+- **启动命令口径**：命令序列的正文在根 [`README.md`](../README.md)「本地怎么跑起来」；`spring-boot:run` 为什么
+  **不能**写成 `-pl aiwarden-start -am`（三种死法）、IDE 启动与「改兄弟模块必须重 `install`」的唯一正文见
+  [`docs/dev/troubleshooting.md`](dev/troubleshooting.md) 第 4 / 9 条。
+- **启动冒烟（本轮新增的必做验证）**：改依赖（尤其 scope）后必须做一次 `package` + `java -jar` 的启动冒烟——
+  **测试全绿不等于应用能启动**。机制、判据与同类「装配面 / 运行面脱钩」坑见 [`PITFALLS.md`](PITFALLS.md) P05。
+- 本机 Testcontainers 偶发 npipe 抖动：绕行命令见 [`PITFALLS.md`](PITFALLS.md) P10，症状面另见
+  [`docs/dev/troubleshooting.md`](dev/troubleshooting.md) 第 10 条；CI（Linux）不受影响。
 - GitHub Actions 已在 push(main) / PR 上触发；**CI 结果以流水线为准**——本开发环境无法直连 github.com
   （`web_fetch` 解析到非公网 IP 被拒），仓库内不复制 CI 结论。
 - **治理税四项与评测门禁的具体数值**：见上面「结论表」，以及评测门禁的原始输出行（上面第 2 条）——
@@ -202,17 +200,14 @@
 - **前端不在 Maven 生命周期内**：`aiwarden-web/` 是独立 pnpm 工程（**不进 `mvn verify`、不计入测试数**），
   验证口径是 `pnpm build`（含 `vue-tsc --noEmit`）+ dev server 冒烟——**CI 绿不等于前端可构建**。
 - **两个 B 端页在新环境里「看起来是空的」，各有各的原因（2026-10-10 实测，别当成故障）**：
-  ① **评测报告**：`t_eval_report` 只由评测门禁写进 **Testcontainers 的临时库**，本地开发库为空 →
-  `/eval/report` **在表为空时** 404（要看数据得跑 `mvn verify` 读 `EVAL-SUMMARY`，或把结论 INSERT 进本地库——
-  **一旦手工 INSERT 过就不再 404**，页面显示的是那一轮的 `runAt` / P95 / 成本，与 §2 投影不同源，
-  判据是看 `runAt`；2026-10-19 实测补正，正文见 [`dev/troubleshooting.md`](dev/troubleshooting.md) 第 5 条）；
-  ② **一致性报告**：报告行**每 5 分钟自动新增**（本机实测已有 37 份），但 `mismatch_count` 全为 0 ——
-  「不一致清单为空」是**正确空态**；孤儿向量曲线是**手动采样**自绘的，不点就永远是空的。
-  **判据与处置的唯一正文见 [`docs/dev/troubleshooting.md`](dev/troubleshooting.md) 第 5 / 7 条。**
-- **本机 Kafka 端口问题已解决（2026-10-10）**：Windows 把 TCP 9092 划进了保留端口区间，宿主机无法 bind，
-  导致 outbox 卡 PENDING、摄入与计量停摆。绕行已内置进 `docker-compose.yml`
-  （kafka 内部 19092 + `kafka-proxy` 顶到宿主机 **29092**），本机启动需激活 profile `local`，Linux / CI 不需要。
-  **根因、判据与处置的唯一正文见 [`docs/dev/troubleshooting.md`](dev/troubleshooting.md) 第 2 条。**
+  评测报告页在本地开发库**表为空时**返回 404（`t_eval_report` 只存在于 Testcontainers 的临时库）；
+  一致性报告的「不一致清单为空」是**正确空态**（报告每 5 分钟自动新增，本机库里 `mismatch_count` 全为 0，
+  具体份数见该条正文），
+  孤儿向量曲线则要**手动采样**才有点。判据与处置的唯一正文见
+  [`docs/dev/troubleshooting.md`](dev/troubleshooting.md) 第 5 / 7 条（**手工 INSERT 过就不再 404**，
+  那时页面显示的是那一轮的 `runAt`，与本文件 §2 投影不同源）。
+- **本机 Kafka 端口问题已解决（2026-10-10）**：绕行已内置进 `docker-compose.yml`，本机启动需激活 profile `local`，
+  Linux / CI 不需要；根因、判据与处置的唯一正文见 [`docs/dev/troubleshooting.md`](dev/troubleshooting.md) 第 2 条。
   实测已全链路打通：outbox 全 SENT、文档摄入 INDEXED、计量落 `t_llm_call_log`、用量接口返回真实明细。
 - **M4 的已知边界（如实标注，不写成已达成）**：
   ① **Tempo / OTel Collector 未实跑、也未加入 compose**：本机 Docker Hub 不可直连（`manifest` / `pull` 超时），
@@ -229,16 +224,11 @@
      fixture 或人为延时**，接真实端点后再补演；
   ⑤ **前端 KB 页 / Trace 查询的浏览器实测已补**（2026-10-19，口径与限制见 §2「前端独立口径」）——
      原「只过了 `pnpm build`」项关闭；
-  ⑥ **摄入停摆判据的覆盖边界**：判据能**发现**「当前版本索引事件永久失败 / 当前版本账本卡死 / 文档超时」
-     三种形态，`repair` 只**重驱动当前版本、文档存在且未收敛的索引事件**；删除事件与旧版本索引事件
-     **不重驱动**（删除事件重放会 purge 全部版本，可能清掉同名重传的新文档）。若 outbox 事件行根本
-     没写进来，判据照样报不一致，但**不自动补发**（那等于替业务伪造一条从未提交的事件），留人工重传。
-     另注：**重驱动 ≠ 收敛**——事件置回 `PENDING` 后文档仍停摆，直到消费者真的补齐。
-     **反向守卫**：`FAILED` 事件只在文档**未收敛**时才算停摆（已 `INDEXED` 的文档不因事件行被标 `FAILED`
-     而误报），且判据 / `failedOutboxEvents` 计数 / `repair` 重驱动三处共用同一过滤条件——
-     两处口径分叉的下一症状就是「清单为空、计数 0、却重驱动了 1 条」。
-     **账本去噪**：`PROCESSING` 只算 `d.version = l.version` 且文档未收敛的当前版本行；旧版本卡死
-     （当前版本已 `INDEXED`）不再永久污染清单；孤儿账本（文档行不存在）仍保留为可见异常。
+  ⑥ **摄入停摆判据的覆盖边界**：判据能发现三种停摆形态、`repair` 只重驱动「当前版本、文档存在且未收敛的
+     索引事件」——**机制正文与三处守卫见 [`PITFALLS.md`](PITFALLS.md) P16 / P17**，这里只交代**没覆盖到**的部分：
+     outbox 事件行**根本没写进来**时，判据照样报不一致，但**不自动补发**（那等于替业务伪造一条从未提交的事件），
+     留人工重传；且**重驱动 ≠ 收敛**——事件置回 `PENDING` 后文档仍停摆，直到消费者真的补齐。
+     账本去噪（旧版本卡死不再永久污染清单、孤儿账本仍保留为可见异常）同见 P16。
   ⑦ **前端身份层是「开发态守门」，不是后端口径的镜像**：非法身份头在抽屉里被拦（不发请求），
      空值读回时回落缺省 `1`——因此「缺失即 400」在浏览器里演示不到，页面上那条红色告警与 400 原文
      分支当前走不到（防御性代码）。**这是有意取舍，本轮裁决不改前端**（要演 400 的最小形态是加

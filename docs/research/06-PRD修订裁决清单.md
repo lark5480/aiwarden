@@ -624,3 +624,65 @@ README 第一屏同步投影（单向 STATUS → README）；troubleshooting §5
 **本轮实测手法照旧如实标注**：交互仍是页面内派发真实 DOM 事件 + 读 DOM / 抓请求头断言，
 **未做指针级点击**（无可见 surface 时 `NATIVE_BROWSER_VIEWPORT_UNAVAILABLE` 依旧成立）；
 新增的能力只是**截图存证**（KB 页与 Trace 时间线各一张 PNG）。
+
+---
+
+## 32. 文档受众重划第二轮：AGENTS §4 正文迁 `docs/PITFALLS.md`，README 收为「概览 + 快速启动」
+
+**【裁决】**
+- **AGENTS.md 只留红线**：§4「已知的坑与约定」157 行正文整体迁往新建的权威源 `docs/PITFALLS.md`
+  （`P01…P20` 扁平编号，本版一次性分配、后续只追加不重排），AGENTS §4 **保留标题号**、退化为
+  「认症状 + 条目号」的红线速查（最常踩、踩了最贵的五条）。全仓约 25 处按「AGENTS.md §4」写的历史指向
+  （含 `docs/adr/`、`docs/research/`、`docs/benchmarks/` 里的冻结记录）**不回改**，由两处声明解析：
+  PITFALLS 文首「本文件即旧 §4 正文」+ 本条裁决。
+- **npipe 绕行归属改判**（原三处互相推诿，是本轮唯一的**结构性自相矛盾**）：AGENTS §4 开头声明「本机环境类
+  排障不在本节」，却持有该条完整正文；`dev/troubleshooting.md` 第 10 条把正文推回 AGENTS；根 README 第三次
+  指过去。现判给 `PITFALLS.md` P10——理由：处置本身是 maven 参数与探测策略，属「测试怎么跑起来」的机制层，
+  不是「这台机器为什么跑不起来」。
+- **文档收尾校验命令从 AGENTS §2 迁出**到新建的 `docs/dev/doc-selfcheck.md`，并**新增四条锚点断言**：
+  `wc -l AGENTS.md ≤ 100`、`## 4.` 标题号仍在、troubleshooting 小节数 13 未变、活文档不再把 §4 当机制坑正文。
+- **README 的受众边界**：以「项目概览 + 快速启动」为主，保留调研方法声明与文档地图的指针。「一次答错怎么按 traceId 定位」整段迁
+  `ADR-014` 末尾新增的 `## 使用配方` 段（span 名的唯一正文本来就在那份 ADR 里，追加不新增事实；C/B 时间线口径从 STATUS §2 归位到该段，STATUS 降为一句指针）；
+  竞品对比表压成三句 + 指针 `research/03`；结论表**只投影数字与达标结论**——原先连 STATUS §2 的解释性长句
+  一起抄的部分删除（**投影 = 数字，不等于论证**）。
+- **修四处陈旧 / 矛盾表述**：① README 说 troubleshooting「实测过的五条」，实为 13 节（§0–§12）；② README 文档地图写
+  「ADR-001 ~ 012」，实已到 014——改为不写区间、直接指针 `docs/adr/README.md`；③ `docs/README.md` 一处链接
+  标签写 `../STATUS.md` 而目标是 `STATUS.md`；④ `docs/FAILURE.md` 尾注自述「C 13 · D 14 · 共 48」，
+  按「表数据行 = `^|` 行数 − 表头 − 分隔行」实测为 **C 15 · D 16 · 共 52**。
+- **`aiwarden-web/README.md` 去重**：后端启动全序列（`docker compose` / `install` / `spring-boot:run`
+  + 三种死法 + 评测 404 说明）改为指针，只留前端专属内容（pnpm 脚本 / Vite 代理 / 身份头 / 目录 / 实现边界）。
+- **本轮复核补正（追加审计，不改 1–31 条）**：① `docs/README.md` 冻结资产表去掉硬编码的「ADR-001 ~ 014」；
+  ② `docs/adr/README.md` 的「新增 ADR 步骤」改为指向 §2 的动作序列（索引页是活程序，不属于 ADR 决策正文）；
+  ③ 根 README 的「3 份原始调研报告都是 03 点名的取证底稿」改为「其中 2 份」，与 STATUS §5 对齐；
+  ④ 根 README 的调研方法指针改指 `research/03 §4.3`，消除与 `research/README` 的互指；
+  ⑤ C/B 时间线口径归位到 ADR-014，STATUS §2 降为一句指针；
+  ⑥ P05 的「112 个测试」改为「全量测试全绿」，避免与当前 170 混淆；
+  ⑦ `aiwarden-web/README` 修正「页面上演不到」并补 §9 指针。
+
+**【理由】** AGENTS §2 自己立的纪律是「一条事实只有一个正文」，但审计出 **9 类事实各有 2–4 份正文**：启动命令 4 份、
+Windows 9092 绕行 4 份、评测报告页 404 说明 4 份、机制坑 3 份、文档地图 3 份、`-betaNN` 版本号解释 3 份、
+对账停摆判据 4 份（AGENTS / troubleshooting §8 / STATUS §2+§3 / ADR-006）、测试计数口径 2 份、
+停摆守卫 2 份。加上上面那处「三处互指」的矛盾，**本轮不是搬运整理，而是按仓库既有纪律归位**——
+判据与裁决 21 相同：**副本数决定漂移概率，与是否细心无关**。
+
+**【落到文档的动作】** 新建 `docs/PITFALLS.md`、`docs/dev/doc-selfcheck.md`；
+`AGENTS.md` 294 → **100**；`README.md` 209 → **152**；`docs/STATUS.md` 284 → **274**；
+`docs/dev/troubleshooting.md` 329 → **327**（**小节序号未变，仍 13 节**）；`aiwarden-web/README.md` 99 → **84**；
+`docs/README.md` 52 → **56**（活文档表 + 路由表各补一行）；`docs/FAILURE.md` 94 → **95**
+（C/E 类 15 处「AGENTS.md §4」改指 PITFALLS 条目号 + 尾注计数纠正）；`docs/PRD.md` 文首「本文档不承载什么」
+与 §8.1 两处的坑落点改指 PITFALLS；`docs/adr/ADR-014` 末尾追加「使用配方」段。
+**冻结资产不回改**：`docs/research/`（含本文件既有条目）、各 ADR 决策正文（ADR-014 追加段除外）、`docs/benchmarks/`；`docs/adr/README.md` 作为索引更新其「新增 ADR 步骤」，不属于决策正文。
+
+**【验证】** 纯文档改动，**无代码、无测试改动**，`mvn -B -ntp verify` 的 170 与 §2 全部实测数字不变。
+跑完 `docs/dev/doc-selfcheck.md` 的全部校验：
+① 相对链接——全仓 `.md` 遍历（改成遍历后不再维护文件清单，清单本身就是会漏的第三份正文），**0 断链**；
+② 副本计数——「保留端口区间」的根因正文只剩 troubleshooting 第 2 条（另两处命中是 ADR-012 的冻结记录与
+FAILURE 的一行索引）；旧归属表述「该条正文留在 AGENTS」全仓归零；
+③ 权威源纯度——从 STATUS §2 提取的实测数字，在 PRD / FAILURE / PITFALLS / troubleshooting 中，除 PRD 的
+`裁决 28/30`（已确认是裁决编号、不是数字副本）外命中 **0**（README 是允许的投影，不计；扫描集不含 AGENTS /
+doc-selfcheck，命令不扫这两处）；该误报形态已写进 doc-selfcheck ③ 的注释；
+④ 自述数字对齐——就是这一条抓到 FAILURE 尾注少计 4 条（见上），已纠正；计数核法落在 doc-selfcheck ④，FAILURE 尾注只留计数 + 指针；
+⑤ 锚点断言——`wc -l AGENTS.md` = 100（硬上限达标）、`grep -n '^## 4\.'` 命中、troubleshooting 小节数 13 未变、
+活文档里已无把 AGENTS §4 当**机制坑正文**的表述（⑤-d 只命中 PITFALLS 文首兼容声明两行 + docs/README 路由指针一行）。
+**遗留判据**：PRD FR-ING-06 里仍列着三类判据——那是**验收口径**（要检测什么），合法留在 PRD；
+实现层的判据与三处守卫正文现在只在 PITFALLS P16 / P17 一处。

@@ -171,10 +171,10 @@ flowchart LR
 
 | ID | 需求 | 用户故事 | 接口 | 验收标准 |
 |---|---|---|---|---|
-| FR-TEN-01 | 租户开户 | 作为平台管理员，我要创建租户并指定隔离档位，以便不同客户共用一套部署 | `POST /api/v1/admin/tenants` | 创建成功返回 `tenantId`；`tenantId` 一经创建不可改；重复名称 409 |
+| FR-TEN-01 | 租户开户 | 作为平台管理员，我要创建租户并指定隔离档位，以便不同客户共用一套部署 | `POST /api/v1/admin/tenants` | 创建成功返回 `tenantId`；`tenantId` 一经创建不可改；重复名称 409。⚠️ **端点未交付**（目标形态，裁决 33）；当前租户为种子数据 |
 | FR-TEN-02 | 租户上下文透传 | 作为后端，我要让租户上下文贯穿 HTTP → 虚拟线程 → Kafka 消费 → 定时任务，以便异步路径不丢租户 | 内部 | 单测断言：在虚拟线程内、Kafka 消费者内、`@Scheduled` 内均能取到正确 `tenantId`；缺失时**拒绝执行**而不是回退到默认租户 |
-| FR-TEN-03 | 隔离档位（行级单档） | 作为平台管理员，我要让全部租户运行在**行级隔离（SHARED_TABLE）单档**上，以便个人项目聚焦租户隔离正确性 | `PUT /api/v1/admin/tenants/{id}/isolation` | 行级隔离在同一业务上完整可运行（多档切换不做）；**三档（行级 / 独立 schema / 独立库）的性能与运维对比降为设计文档**交付（不是运行时能力，也不是只写「支持多租户」） |
-| FR-TEN-04 | API Key 管理 | 作为租户管理员，我要创建/吊销密钥 | `POST/DELETE /api/v1/tenants/{id}/keys` | 密钥仅创建时明文返回一次，库中存哈希；吊销后立即失效（含流式连接） |
+| FR-TEN-03 | 隔离档位（行级单档） | 作为平台管理员，我要让全部租户运行在**行级隔离（SHARED_TABLE）单档**上，以便个人项目聚焦租户隔离正确性 | `PUT /api/v1/admin/tenants/{id}/isolation` | 行级隔离在同一业务上完整可运行（多档切换不做）；**三档（行级 / 独立 schema / 独立库）的性能与运维对比降为设计文档**交付（不是运行时能力，也不是只写「支持多租户」）。⚠️ 行级单档隔离已交付；**PUT 端点未交付**（目标形态，裁决 33） |
+| FR-TEN-04 | API Key 管理 | 作为租户管理员，我要创建/吊销密钥 | `POST/DELETE /api/v1/tenants/{id}/keys` | 密钥仅创建时明文返回一次，库中存哈希；吊销后立即失效（含流式连接）。⚠️ **端点未交付**（目标形态，裁决 33）；当前身份为请求头模拟（STATUS §3） |
 
 ### 5.2 知识库与摄入（FR-KB / FR-ING）
 
@@ -299,7 +299,7 @@ flowchart LR
 | **性能** | 业务侧：首 token P95 < 1.5s；检索 P95 < 800ms（**10 万切片量级**，与 §5.3 FR-RET-05 同口径；百万级切片只报容量边界、不承诺）；上传接口 P95 < 200ms（异步化）。治理侧（**治理税**口径，裁决 13）：**不报转发吞吐，报治理税**——逐环节开销（可见集计算 / filter 下推 / 计量事件 / 配额检查 / 审计留痕）+ 每请求治理总开销边界 + 开/关强一致配额的吞吐差（用 X% 吞吐换计费零差错，X% 待实测回填）；报容量边界（吞吐拐点 / P99）不报冠军；**压测报告**必须附机器规格（8 核 / 32G 单机实测口径），含错误率 / 资源水位 / 瓶颈点 / 优化前后对比。**交付分层（裁决 18）**：M2 先交付**四项**（可见集计算 / filter 下推 / 计量事件 / 配额检查，实测值见 §12）；**审计留痕开销与总开销 / 吞吐拐点 / P99 归 M4 压测报告** |
 | **并发** | 用 Java 21 **虚拟线程**承载长阻塞 IO；**Web 层采用 Spring WebMVC（非 WebFlux）+ 虚拟线程**（`spring.threads.virtual.enabled=true`，见 §7.4 ADR-002）；`synchronized` 长 IO 段一律换 `ReentrantLock`（避免 JDK 21 pinning）；文档写明 JEP 491（JDK 24）才彻底解决 |
 | **安全** | API Key 只存哈希；密码 BCrypt；越权返回 404 而非 403（避免探测）；工具白名单装配期定死；**越权样本 CI 门禁** |
-| **可维护性** | DDD 分层 + **ArchUnit 在 CI 强制**（分层依赖方向 + 模块隔离 + 禁止业务代码直接依赖 LangChain4j API）；契约先行（OpenAPI 3 + 前端 TS 类型共享） |
+| **可维护性** | DDD 分层 + **ArchUnit 在 CI 强制**（分层依赖方向 + 模块隔离 + 禁止业务代码直接依赖 LangChain4j API）；契约先行（OpenAPI 3 + 前端 TS 类型共享）。⚠️ **当前实现口径（裁决 33 如实标注）**：OpenAPI spec 与 TS 类型生成**尚未交付**，原文是目标形态；当前契约 = `aiwarden-contract` Java record + 消费方手写 TS 类型 |
 | **可观测性** | Metric / Trace / Log 三支柱齐全；每个治理动作都有指标 |
 | **可部署性** | Docker Compose 本地一键起（PostgreSQL+pgvector / Redis / Kafka / MinIO / OTel Collector / Tempo / Loki / Grafana / Prometheus）**为主形态**；K8s（Helm + 探针 + HPA）降为 **M4 可选实验**，非交付承诺（裁决 4） |
 | **测试** | JUnit 5 + Mockito 单测；Testcontainers 集成测试（真实 PostgreSQL/Redis/Kafka 并发）；**故障注入用例**（进程级 + 网络级） |
@@ -341,7 +341,7 @@ flowchart LR
 ```
 aiwarden/
 ├── aiwarden-common        # 统一 Result / 错误码 / 工具
-├── aiwarden-contract      # 对外契约 DTO/VO/枚举 + OpenAPI（契约先行）
+├── aiwarden-contract      # 对外契约 DTO/VO/枚举（OpenAPI 为目标形态、未交付，见 §6 可维护性注 / 裁决 33）
 ├── aiwarden-core          # 领域模型 + SPI（ModelClient / VectorStore / ToolExecutor / TenantResolver）——SPI 即治理边界的正式定义：治理动作必须挂在 SPI 切面上，不侵入业务模块
 ├── aiwarden-governance    # ★ 核心差异化：Outbox · 幂等消费 · 补偿 · 对账 · 可见集与 filter 下推 · 配额预算 · 成本归因
 ├── aiwarden-knowledge     # 知识库 / 文档 / 切片 / 向量 + 摄入 DAG

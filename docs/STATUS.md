@@ -73,7 +73,7 @@
 
 ### 复现口径（原始证据）
 
-- 本地 `mvn -B -ntp verify`：**170 测试全绿**（0 失败 0 跳过）；
+- 本地 `mvn -B -ntp verify`：**171 测试全绿**（0 失败 0 跳过）；
   **单次运行口径**（`clean` 后跑一次），机器 `i7-7700（4 物理核 / 8 逻辑核）+ 32GB`。
   其中 M2 收尾为 102 → M3 切片①② 净增 10（112）→ 收官后补测净增 15（**127**：
   `AdminIdentityBoundaryContainersTest` 13 + `MockModelClientTest` 3，扣除随口径调整的 1）
@@ -97,6 +97,11 @@
     `GovernanceLoadProbe` 被根 pom 的 `surefire.excludedGroups=load` 按 tag 排除；
     `P1DeleteSloProbe` 虽然带 `@Tag("slo")`，**但 `slo` 不在 excludedGroups 里**——它不被执行是因为
     **类名不以 `Test` 结尾**（surefire 默认 include 规则）。把它改名成 `*Test` 就会被计入并拖慢 verify。
+  - **跨仓审计修复计数（2026-11-11，接续上条；本轮唯一当前值）**：`mvn -B -ntp verify` →
+    **exit 0 / BUILD SUCCESS / 10:12 min**，`aiwarden-common` **16** + `aiwarden-knowledge` **8** +
+    `aiwarden-start` **147** = **171**，0 失败 0 跳过。
+    增量 **+1**：`QuotaEnforcementContainersTest` 的 usage 时间参数边界用例（非法 `from/to` → 400，
+    修复前实测 500，裁决 33）。两个探针仍不计入（机制同上条）。
   - **复现记录**：2026-10-10 本轮文档重划后在**同一工作树**上重跑 `mvn -B -ntp verify`（不带 `-o`，
     需要 Testcontainers 起真实 PostgreSQL / Kafka），**exit 0 / BUILD SUCCESS / 4:13 min**，
     reactor 三个有测试的模块各报 `Tests run` 汇总：`aiwarden-common` 16 + `aiwarden-knowledge` 8 +
@@ -129,7 +134,7 @@
   `mvn -B -ntp -pl aiwarden-start -am test -Dtest=P1DeleteSloProbe -Dsurefire.failIfNoSpecifiedTests=false`
   （需 Docker；本机 npipe 绕行见 [`PITFALLS.md`](PITFALLS.md) P10）；逐轮样本与 P50/P95/max 写在
   `aiwarden-start/target/p1-delete-slo.txt`。
-- **前端独立口径**：`aiwarden-web` 是独立 pnpm 工程，**不进 `mvn verify`、不计入上面的 170**；
+- **前端独立口径**：`aiwarden-web` 是独立 pnpm 工程，**不进 `mvn verify`、不计入上面的 171**；
   其验证是 `pnpm build`（含 `vue-tsc --noEmit` 类型检查）通过 + `pnpm dev` 启动无编译错误，
   并已用真实后端做端到端联调（经 Vite 代理 5173→8080 打通 `/api`、`/actuator/prometheus` 与 SSE 流）。
   **M4 新增的 KB 管理页 / 一致性页 Trace 查询已在 2026-10-19 补做真实浏览器实测**（干净 clone 起 dev server、
@@ -236,6 +241,7 @@
      而不是报错**：换成不存在的租户，B 端整片空但接口全 200，真实 trace 跨租户查是 404 不是 403。
      判据与演示分工见 [`dev/troubleshooting.md`](dev/troubleshooting.md) 第 11 / 12 条。
 - **未做（汇总）**：P4b（预算降级，裁决 19 砍除）、用户鉴权（身份头为认证层输出的模拟）、
+  租户开户 / 隔离档位 / 密钥管理端点（FR-TEN-01/03/04，目标形态）、OpenAPI spec 与 TS 类型生成（裁决 33）、
   Loki 日志采集、K8s/Helm、真实模型 fixture。
 
 ## 4. 下一步

@@ -11,6 +11,8 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
+import java.time.format.DateTimeParseException;
+
 /**
  * API 统一异常映射：404（不存在 / 跨租户不可见，FR-KB-01）、403（可见集为空即拒绝 / 工具不可见，FR-PERM-01/03）、
  * 409（冲突）、400（参数错误）、429（配额超限 / 租户限流，P4a）。与 M0 的 MissingTenantContextExceptionHandler 并存。
@@ -55,5 +57,12 @@ public class ApiExceptionHandler {
     @ExceptionHandler(IllegalArgumentException.class)
     public ProblemDetail onIllegalArgument(IllegalArgumentException exception) {
         return ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, exception.getMessage());
+    }
+
+    /** 时间参数解析失败（usage from/to、billing period）→ 400：客户端输入错误，不是服务端故障。 */
+    @ExceptionHandler(DateTimeParseException.class)
+    public ProblemDetail onDateTimeParse(DateTimeParseException exception) {
+        return ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST,
+                "时间参数格式非法（需 ISO-8601，如 2026-01-01T00:00:00Z；账期为 YYYY-MM）");
     }
 }

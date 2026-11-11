@@ -686,3 +686,36 @@ doc-selfcheck，命令不扫这两处）；该误报形态已写进 doc-selfchec
 活文档里已无把 AGENTS §4 当**机制坑正文**的表述（⑤-d 只命中 PITFALLS 文首兼容声明两行 + docs/README 路由指针一行）。
 **遗留判据**：PRD FR-ING-06 里仍列着三类判据——那是**验收口径**（要检测什么），合法留在 PRD；
 实现层的判据与三处守卫正文现在只在 PITFALLS P16 / P17 一处。
+
+## 33. 跨仓接口审计（2026-11-11）：usage 时间参数 500→400、OpenAPI / FR-TEN 目标形态如实标注、配额 429 不带 Retry-After 的语义
+
+**【裁决】**
+
+- **usage `from/to` 非法 → 400（原 500）**：`OffsetDateTime.parse` 抛 `DateTimeParseException` 无处理器，
+  穿透成 500。在 `ApiExceptionHandler` 加单点映射 → 400（连带覆盖 billing period 的 `YearMonth.parse` 链路）。
+  **差分验证**：新增用例 `QuotaEnforcementContainersTest.usageRejectsMalformedTimeRange_with400`
+  修复前实测 **500** → 修复后 **400**（合法 ISO instant 仍 200，排除「一律 400」假绿）。
+  全量 `mvn -B -ntp verify` → **exit 0 / BUILD SUCCESS / 10:12 min**，
+  `aiwarden-common` **16** + `aiwarden-knowledge` **8** + `aiwarden-start` **147** = **171**，0 失败 0 跳过。
+- **OpenAPI 如实标注（裁决 17 手法）**：PRD §6 可维护性 / §7.3 模块注释两处「契约先行（OpenAPI 3 + 前端 TS 类型共享）」
+  是**目标形态，尚未交付**——全仓无 openapi/swagger 文件，`aiwarden-contract` 只有 Java record，
+  两个消费方（aiwarden-web / playtest-agent）均手写 TS 类型。PRD 两处加 ⚠️ 行内注、STATUS §3 未做汇总补列；
+  **实现延后**（springdoc 对 SB 4.1.1 的兼容性需单独验证，不阻塞本轮修复）。
+- **FR-TEN-01/03/04 端点如实标注**：租户开户 / 隔离档位 PUT / 密钥管理三个端点代码不存在（grep 零命中），
+  PRD §5.1 三行加 ⚠️「端点未交付（目标形态）」；FR-TEN-03 注明行级单档隔离本身已交付、PUT 端点未交付。
+  当前身份为请求头模拟（STATUS §3 既有「用户鉴权」项）。
+- **配额 429 不加 Retry-After**：配额耗尽没有诚实的恢复时间（不同于租户限流的滑动窗口），
+  编造 Retry-After 会误导消费方做无效退避。两类 429 按**有无 Retry-After 头**区分：
+  有头 = 限流（可退避重试）；无头 = 配额（fail-fast，提额后才可重试，见 ADR-010 既有语义）。
+  消费方 playtest-agent 在其裁决 37 落地该区分（409 租约在飞有限重试、429 有头退避、无头 fail-fast）。
+- **测试数 170 → 171**：+1 为上述边界用例；两个探针仍不计入（机制不变，见 STATUS §2 数数口径）。
+
+**【理由】** 本轮起因是跨仓接口审计（playtest-agent 借用本仓 `GET /agent/tools`、
+`POST /agent/tools/{tool}/invoke`、`GET /admin/usage` 三个端点）：消费方把全部状态码塌缩成通用错误，
+而本仓的 500 穿透让「客户端输入错误」进一步不可辨——修 500→400 单点是消费方差异化恢复的前提。
+OpenAPI / FR-TEN 两处是文档健康度检查（八项自校验全过）之外抓出的「文档声称 ≠ 代码现状」：
+目标形态被写成现行做法。按裁决 17 先例处理：**如实标注，不假装已交付，也不删需求**。
+消费方侧的加固（typed error / 重试 / orderRef 全键哈希 / 用量不填 0 / 探活校验工具注册）
+在其仓库裁决 37 记录，本仓**不改被消费接口形状**。
+
+**【验证】** 差分与全量数字见上；文档收尾跑 `docs/dev/doc-selfcheck.md` 八项（结果记于本轮提交正文）。

@@ -44,7 +44,7 @@ AIWarden 是一个**面向 Java 技术栈的 AI 应用数据面治理组件**。
 | P5 `kill -9` 后续跑 | **已达成**：崩在副作用后 / 检查点前 → 幂等命中 `replayed=true`、工单数 **1**（[ADR-013](docs/adr/ADR-013-agent-checkpoint-and-resume.md)） |
 | 评测门禁（24 条样本） | **24/24 全绿**、风险样本拦截 **7/7**、重复建单 **0**、单次成本 **0.000869 元**（演示单价口径）；**P95 只报同日抖动区间 66–224ms**，不可当容量结论引用 |
 | 治理税（六项 P95） | 可见集 **2.7ms** / filter 下推 **5.9ms** / 计量 **0.7ms** / 配额 **3.9ms** / 审计 **1.5ms** / OTel span **19µs**；六项 P50 相加约 **10.3ms/请求**；**可用并发上界 ≈ 4**（[逐项与逐轮](docs/benchmarks/M4-load-report.md)） |
-| 测试 `mvn -B -ntp verify` | **170**（0 失败 0 跳过；前端独立 `pnpm build` 口径、两个探针不计入） |
+| 测试 `mvn -B -ntp verify` | **171**（0 失败 0 跳过；前端独立 `pnpm build` 口径、两个探针不计入） |
 
 **一次「答错」怎么按 traceId 定位**：四个 span 各能排除什么，配方正文见
 [ADR-014「使用配方」段](docs/adr/ADR-014-observability-trace.md)（FR-OBS-05）；Grafana → Tempo 那一步本轮未实跑。

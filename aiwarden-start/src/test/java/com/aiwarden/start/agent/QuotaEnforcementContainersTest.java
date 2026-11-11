@@ -373,6 +373,24 @@ class QuotaEnforcementContainersTest {
         assertThat(get("/api/v1/admin/budgets/" + TENANT_OK, TENANT_OK).statusCode()).isEqualTo(200);
     }
 
+    /**
+     * 用量接口时间参数的边界（FR-COST-04）：from/to 是客户端输入，非法格式必须落 400，
+     * 而不是让 DateTimeParseException 穿透成 500（修复前实测 500）。
+     * 合法 ISO instant 仍 200（排除「一律 400」的假绿）。
+     */
+    @Test
+    void usageRejectsMalformedTimeRange_with400() throws Exception {
+        assertThat(get("/api/v1/admin/usage?from=not-a-date", TENANT_OK).statusCode())
+                .as("非法 from 必须是 400（客户端错误），不是 500")
+                .isEqualTo(400);
+        assertThat(get("/api/v1/admin/usage?to=not-a-date", TENANT_OK).statusCode())
+                .isEqualTo(400);
+        assertThat(get("/api/v1/admin/usage?from=2026-01-01T00:00:00Z&to=2026-12-31T23:59:59Z", TENANT_OK)
+                .statusCode())
+                .as("合法时间范围仍须 200")
+                .isEqualTo(200);
+    }
+
     private void setBudget(long tenantId, long tokenLimit) throws Exception {
         HttpResponse<String> response = put("/api/v1/admin/budgets/" + tenantId,
                 objectMapper.writeValueAsString(new BudgetSetRequest(null, tokenLimit)),
